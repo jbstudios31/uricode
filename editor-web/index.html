@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#3c3c3c">
+<title>Uri Code</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<svg class="sprite" width="0" height="0" aria-hidden="true">
+  <defs>
+    <linearGradient id="uriGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3db8ff"/>
+      <stop offset="1" stop-color="#0062b3"/>
+    </linearGradient>
+    <symbol id="uri-logo" viewBox="0 0 64 64">
+      <rect width="64" height="64" rx="14" fill="url(#uriGrad)"/>
+      <path d="M19 15v21a13 13 0 0 0 26 0V15" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div id="app">
+
+  <header id="titlebar">
+    <button class="tb-btn" id="btnMenu" title="Menú"><span data-icon="menu" data-size="18"></span></button>
+    <svg class="tb-logo" width="16" height="16"><use href="#uri-logo"/></svg>
+    <nav id="menubar">
+      <button data-menu="file">Archivo</button>
+      <button data-menu="edit">Editar</button>
+      <button data-menu="view">Ver</button>
+      <button data-menu="go">Ir</button>
+      <button data-menu="help">Ayuda</button>
+    </nav>
+    <div id="titleText" class="title-text">Uri Code</div>
+    <button class="tb-btn" id="btnPalette" title="Paleta de comandos"><span data-icon="terminal" data-size="18"></span></button>
+  </header>
+
+  <div id="workbench">
+
+    <nav id="activitybar">
+      <div class="ab-top">
+        <button class="ab-item" data-view="explorer" title="Explorador"><span data-icon="files" data-size="24"></span><span class="ab-badge" id="abBadge"></span></button>
+        <button class="ab-item" data-view="search" title="Buscar"><span data-icon="search" data-size="24"></span></button>
+        <button class="ab-item" data-view="ai" title="Chat IA"><span data-icon="sparkle" data-size="24"></span></button>
+        <button class="ab-item" data-view="terminal" title="Terminal"><span data-icon="terminal" data-size="24"></span></button>
+        <button class="ab-item" data-view="git" title="Control de versiones"><span data-icon="git" data-size="24"></span></button>
+      </div>
+      <div class="ab-bottom">
+        <button class="ab-item" data-view="settings" title="Ajustes"><span data-icon="gear" data-size="24"></span></button>
+      </div>
+    </nav>
+
+    <div id="scrim"></div>
+
+    <aside id="sidebar">
+
+      <section class="view" id="view-explorer">
+        <div class="view-title"><span>EXPLORADOR</span></div>
+        <div class="pane" id="pane-open">
+          <div class="pane-header" data-pane="open">
+            <span class="chev" data-icon="chevron-down" data-size="16"></span>
+            <span class="pane-name">Editores abiertos</span>
+          </div>
+          <div class="pane-body" id="openEditors"></div>
+        </div>
+        <div class="pane grow" id="pane-files">
+          <div class="pane-header" data-pane="files">
+            <span class="chev" data-icon="chevron-down" data-size="16"></span>
+            <span class="pane-name">Proyectos</span>
+            <span class="pane-actions">
+              <button id="explNewFile" title="Nuevo archivo"><span data-icon="new-file" data-size="16"></span></button>
+              <button id="explNewDir" title="Nueva carpeta"><span data-icon="new-folder" data-size="16"></span></button>
+              <button id="explRefresh" title="Actualizar"><span data-icon="refresh" data-size="16"></span></button>
+              <button id="explCollapse" title="Contraer carpetas"><span data-icon="collapse" data-size="16"></span></button>
+            </span>
+          </div>
+          <div class="pane-body scroll" id="tree"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-search">
+        <div class="view-title"><span>BUSCAR</span></div>
+        <div class="search-box">
+          <div class="input-wrap">
+            <input id="searchInput" placeholder="Buscar en archivos" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <button class="opt" id="optCase" title="Coincidir mayúsculas y minúsculas">Aa</button>
+            <button class="opt" id="optRegex" title="Usar expresión regular">.*</button>
+          </div>
+          <div id="searchSummary" class="search-summary"></div>
+        </div>
+        <div id="searchResults" class="scroll results"></div>
+      </section>
+
+      <section class="view" id="view-ai">
+        <div class="view-title">
+          <span>CHAT IA</span>
+          <span class="title-actions"><button id="chatClear" title="Limpiar chat"><span data-icon="trash" data-size="16"></span></button></span>
+        </div>
+        <div id="chatMessages" class="chat-messages scroll"></div>
+        <div class="chat-compose">
+          <div class="chat-ctx">
+            <label><input type="checkbox" id="chatIncludeFile" checked> Incluir archivo abierto</label>
+            <span id="chatModelLabel"></span>
+          </div>
+          <div class="chat-row">
+            <textarea id="chatInput" rows="2" placeholder="Pregunta sobre tu código…" autocapitalize="sentences"></textarea>
+            <button id="chatSend" title="Enviar"><span data-icon="send" data-size="18"></span></button>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-terminal">
+        <div class="view-title"><span>TERMINAL</span></div>
+        <div class="scroll" style="padding:10px; display:flex; flex-direction:column; gap:8px; height:100%;">
+          <div style="display:flex; gap:6px;">
+            <input id="termCwd" placeholder="Directorio (relativo)" style="flex:1;" class="input">
+            <input id="termCmd" placeholder="Comando" style="flex:2;" class="input">
+            <button id="termRun" class="btn btn-primary btn-sm">Ejecutar</button>
+          </div>
+          <pre id="termOut" class="scroll" style="flex:1; background:#1e1e1e; color:#d4d4d4; padding:8px; font-family:var(--font-mono); font-size:12px; white-space:pre-wrap; margin:0; min-height:120px;"></pre>
+        </div>
+      </section>
+
+      <section class="view" id="view-git">
+        <div class="view-title"><span>CONTROL DE VERSIONES</span></div>
+        <div class="scroll" style="padding:10px; display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <button id="gitStatus" class="btn btn-primary btn-sm">Estado</button>
+            <button id="gitLog" class="btn btn-ghost btn-sm">Log</button>
+            <button id="gitDiff" class="btn btn-ghost btn-sm">Diff</button>
+            <button id="gitPull" class="btn btn-ghost btn-sm">Pull</button>
+            <button id="gitPush" class="btn btn-ghost btn-sm">Push</button>
+          </div>
+          <pre id="gitOut" class="scroll" style="background:#1e1e1e; color:#d4d4d4; padding:8px; font-family:var(--font-mono); font-size:12px; white-space:pre-wrap; margin:0; min-height:120px;"></pre>
+          <div style="display:flex; gap:6px;">
+            <input id="gitMsg" placeholder="Mensaje de commit" class="input" style="flex:1;">
+            <button id="gitCommit" class="btn btn-primary btn-sm">Commit</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-settings">
+        <div class="view-title"><span>AJUSTES</span></div>
+        <div class="scroll settings">
+          <div class="set-group">Editor</div>
+          <div class="set-row">
+            <span>Tamaño de fuente</span>
+            <span class="stepper"><button id="fontMinus">−</button><span id="fontVal">14</span><button id="fontPlus">+</button></span>
+          </div>
+          <label class="set-check"><input type="checkbox" id="setWrap"> Ajuste de línea</label>
+          <label class="set-check"><input type="checkbox" id="setMinimap"> Mostrar minimapa</label>
+          <label class="set-check"><input type="checkbox" id="setAutosave"> Guardado automático</label>
+
+          <div class="set-group">Snippets (JSON: {"trigger":"code"})</div>
+          <label class="set-field">Snippets
+            <textarea id="setSnippets" rows="4" class="input mono" style="font-size:12px;" placeholder='{"log":"console.log($1);"}'></textarea>
+          </label>
+
+          <div class="set-group">Chat IA (NVIDIA NIM)</div>
+          <label class="set-field">API Key
+            <input type="password" id="setKey" placeholder="nvapi-…" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </label>
+          <label class="set-field">Modelo
+            <input type="text" id="setModel" list="modelList" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </label>
+          <datalist id="modelList">
+            <option value="meta/llama-3.1-8b-instruct">
+            <option value="meta/llama-3.1-70b-instruct">
+            <option value="meta/llama-3.3-70b-instruct">
+            <option value="qwen/qwen2.5-coder-32b-instruct">
+          </datalist>
+          <div class="set-note">La clave se guarda solo en este dispositivo.</div>
+
+          <div class="set-group">Acerca de</div>
+          <div class="set-note">Uri Code 2.0.0<br>Editor Monaco · Proyectos en el almacenamiento interno de la app.</div>
+        </div>
+      </section>
+
+    </aside>
+    <div id="sash" title="Arrastra para cambiar el ancho"></div>
+
+    <main id="editor-area">
+      <div id="tabs"></div>
+      <div id="breadcrumbs"></div>
+      <div id="editor-host">
+        <div id="editor-root"></div>
+        <div id="welcome">
+          <div class="welcome-inner">
+            <svg class="welcome-logo" width="96" height="96"><use href="#uri-logo"/></svg>
+            <h1>Uri Code</h1>
+            <p class="welcome-sub">Editor de código</p>
+            <div class="welcome-actions">
+              <button id="wNewFile"><span data-icon="new-file" data-size="16"></span> Nuevo archivo</button>
+              <button id="wOpen"><span data-icon="search" data-size="16"></span> Ir a archivo…</button>
+              <button id="wPalette"><span data-icon="terminal" data-size="16"></span> Paleta de comandos…</button>
+            </div>
+            <table class="welcome-keys">
+              <tr><td>Ir a archivo</td><td><kbd>Ctrl</kbd> <kbd>P</kbd></td></tr>
+              <tr><td>Paleta de comandos</td><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>P</kbd></td></tr>
+              <tr><td>Guardar</td><td><kbd>Ctrl</kbd> <kbd>S</kbd></td></tr>
+              <tr><td>Barra lateral</td><td><kbd>Ctrl</kbd> <kbd>B</kbd></td></tr>
+              <tr><td>Buscar en archivos</td><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>F</kbd></td></tr>
+            </table>
+            <div id="welcomeRecent"></div>
+            <p id="welcomeLoading" class="welcome-loading">Cargando editor…</p>
+          </div>
+        </div>
+      </div>
+      <div id="keybar"></div>
+    </main>
+
+  </div>
+
+  <footer id="statusbar">
+    <div class="sb-left">
+      <button class="sb-item sb-brand" id="sbBrand" title="Paleta de comandos"><span data-icon="terminal" data-size="14"></span><span class="sb-brand-text">Uri Code</span></button>
+      <span class="sb-item" id="sbErrors" title="Problemas"><span data-icon="error" data-size="14"></span><span id="sbErrCount">0</span><span data-icon="warning" data-size="14"></span><span id="sbWarnCount">0</span></span>
+    </div>
+    <div class="sb-right">
+      <span class="sb-item" id="sbPos"></span>
+      <span class="sb-item sb-opt" id="sbSpaces"></span>
+      <span class="sb-item sb-opt" id="sbEnc">UTF-8</span>
+      <span class="sb-item sb-opt" id="sbEol"></span>
+      <span class="sb-item" id="sbLang"></span>
+    </div>
+  </footer>
+</div>
+
+<div id="menu-backdrop"></div>
+<ul id="menu"></ul>
+
+<div id="palette-backdrop">
+  <div id="palette">
+    <input id="paletteInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Buscar archivo por nombre (escribe > para comandos, : para ir a línea)">
+    <ul id="paletteList"></ul>
+  </div>
+</div>
+
+<div id="dialog-backdrop">
+  <div id="dialog">
+    <div class="dlg-title" id="dlgTitle"></div>
+    <div class="dlg-msg" id="dlgMsg"></div>
+    <input class="dlg-input" id="dlgInput" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="dlg-buttons" id="dlgButtons"></div>
+  </div>
+</div>
+
+<input type="file" id="importInput" multiple hidden>
+<div id="toast"></div>
+
+<script src="js/icons.js"></script>
+<script src="js/api.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/nim-chat.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
