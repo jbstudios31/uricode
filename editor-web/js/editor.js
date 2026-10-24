@@ -489,7 +489,9 @@
       editor.updateOptions({
         fontSize: options.fontSize,
         wordWrap: options.wordWrap ? "on" : "off",
-        minimap: { enabled: !!options.minimap }
+        minimap: { enabled: !!options.minimap },
+        tabSize: options.tabSize || 4,
+        insertSpaces: options.insertSpaces !== false
       });
     } else if (mode === "fallback" && fb) {
       fb.style.fontSize = options.fontSize + "px";

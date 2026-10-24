@@ -43,7 +43,7 @@
   }
 
   /* ================= Estado ================= */
-  var DEFAULTS = { fontSize: 14, wordWrap: true, minimap: null, autoSave: true, nimKey: "", nimModel: "meta/llama-3.1-8b-instruct", snippets: "", theme: "dark" };
+  var DEFAULTS = { fontSize: 14, wordWrap: true, minimap: null, autoSave: true, nimKey: "", nimModel: "meta/llama-3.1-8b-instruct", snippets: "", theme: "dark", tabSize: 4 };
   var APP_VERSION = "3.0.0";
   var UPDATE_REPO = "jbstudios31/uricode";
 
@@ -1551,7 +1551,7 @@
     if (window.monaco && monaco.editor) { try { monaco.editor.setTheme((S.settings.theme === "light") ? "vs" : "uri-dark"); } catch (e) {} }
   }
   function applySettings() {
-    UriEditor.applyOptions({ fontSize: S.settings.fontSize, wordWrap: S.settings.wordWrap, minimap: S.settings.minimap });
+    UriEditor.applyOptions({ fontSize: S.settings.fontSize, wordWrap: S.settings.wordWrap, minimap: S.settings.minimap, tabSize: S.settings.tabSize });
     applyTheme();
     refreshSettingsUI();
     Chat.refresh();
@@ -1811,6 +1811,28 @@
     $("btnPalette").onclick = function () { openPalette(">"); };
     $("sbBrand").onclick = function () { openPalette(">"); };
     var sbe = $("sbErrors"); if (sbe) sbe.addEventListener("click", showProblems);
+    var sbSpaces = $("sbSpaces"); if (sbSpaces) sbSpaces.addEventListener("click", function () {
+      if (!currentTab()) return;
+      var cur = S.settings.tabSize || 4;
+      var next = (cur === 2) ? 4 : (cur === 4 ? 8 : 2);
+      S.settings.tabSize = next; saveSettings(); UriEditor.applyOptions({ tabSize: next });
+      $("sbSpaces").textContent = "Espacios: " + next;
+      toast("Tab size: " + next);
+    });
+    var sbEol = $("sbEol"); if (sbEol) sbEol.addEventListener("click", function () {
+      if (!currentTab()) return;
+      var t = currentTab();
+      var v = UriEditor.getValue(t.path);
+      var eol = v.indexOf("\r\n") >= 0 ? "\n" : "\r\n";
+      var nv = v.replace(/\r\n/g, "\n").replace(/\n/g, eol === "\r\n" ? "\r\n" : "\n");
+      // simpler: normalize to LF then convert
+      nv = v.replace(/\r\n/g, "\n");
+      if (eol === "\r\n") nv = nv.replace(/\n/g, "\r\n");
+      UriEditor.setValue(t.path, nv);
+      t.dirty = true;
+      renderTabs();
+      toast("EOL: " + (eol === "\r\n" ? "CRLF" : "LF"));
+    });
     $("sbPos").onclick = function () { if (currentTab()) openPalette(":"); };
     $("wNewFile").onclick = function () { newItem("file"); };
     $("wOpen").onclick = function () { openPalette(""); };
