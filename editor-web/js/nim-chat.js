@@ -111,9 +111,10 @@
     if (!els.include.checked) return "";
     var c = ctx.getContext();
     if (!c || !c.path) return "";
-    var body = (c.selection != null ? c.selection : c.text);
+    var hasSelection = typeof c.selection === "string" && c.selection.length > 0;
+    var body = hasSelection ? c.selection : c.text;
     if (typeof body !== "string") body = body == null ? "" : String(body);
-    var label = (c.selection != null) ? "Selección en " : "Archivo abierto: ";
+    var label = hasSelection ? "Selección en " : "Archivo abierto: ";
     var note = "";
     if (body.length > MAX_CONTEXT_CHARS) { body = body.slice(0, MAX_CONTEXT_CHARS); note = "\n[…contenido recortado…]"; }
     return "\n\n--- " + label + c.path + " (" + c.lang + ") ---\n" + body + note + "\n--- fin ---";

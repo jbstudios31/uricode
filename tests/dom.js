@@ -112,6 +112,7 @@ function makeElement(id, tag) {
     contains: function () { return false; },
     getBoundingClientRect: function () { return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }; },
     focus: function () {}, blur: function () {}, click: function () { this.dispatch("click"); },
+    scrollIntoView: function () {},
     setSelectionRange: function () {}, select: function () {},
     getContext: function () { return null; },
     insertAdjacentHTML: function () {},
