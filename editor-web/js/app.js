@@ -1385,6 +1385,39 @@
       });
     });
   }
+  var diffEditor = null;
+  function shellQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+  function openDiff(path) {
+    var dir = dirName(path);
+    API.runCommand("git rev-parse --show-toplevel", dir).then(function (r) {
+      if (r.code !== 0 || !r.stdout.trim()) { toast("No es un repositorio git", "error"); return; }
+      var root = r.stdout.trim();
+      var rel = path;
+      if (rel.indexOf(root) === 0) rel = rel.slice(root.length).replace(/^\/+/, "");
+      var current = UriEditor.getValue(path) || "";
+      API.runCommand("git show HEAD:" + shellQuote(rel), root).then(function (r2) {
+        var original = (r2.code === 0) ? (r2.stdout || "") : "";
+        // open modal
+        $("diff-backdrop").style.display = "flex";
+        var host = $("diffHost");
+        host.innerHTML = "";
+        if (diffEditor) { try { diffEditor.dispose(); } catch (e) {} diffEditor = null; }
+        var mon = window.monaco;
+        if (!mon) { host.textContent = "Monaco no disponible"; return; }
+        var origModel = mon.editor.createModel(original, langOf(path), mon.Uri.parse("original://" + path));
+        var modModel = mon.editor.createModel(current, langOf(path), mon.Uri.parse("modified://" + path));
+        diffEditor = mon.editor.createDiffEditor(host, { theme: "uri-dark", automaticLayout: true, readOnly: false });
+        diffEditor.setModel({ original: origModel, modified: modModel });
+        $("diffTitle").textContent = "Diff: " + (path.split("/").pop());
+      });
+    });
+  }
+  function closeDiff() {
+    $("diff-backdrop").style.display = "none";
+    if (diffEditor) { try { diffEditor.dispose(); } catch (e) {} diffEditor = null; }
+    $("diffHost").innerHTML = "";
+  }
+
   function addResultFile(container, f, matches) {
     var head = document.createElement("div");
     head.className = "res-file";
@@ -1479,6 +1512,8 @@
     });
   }
 
+  var dc = $("diffClose"); if (dc) dc.onclick = closeDiff;
+  var db = $("diff-backdrop"); if (db) db.addEventListener("click", function (e) { if (e.target === db) closeDiff(); });
   function bindTermGit() {
     var term = null, fitAddon = null, history = [], histIdx = -1, inputBuf = "";
     if (typeof Terminal !== "undefined") {
@@ -1548,6 +1583,11 @@
     var gitDiffBtn = $("gitDiff"); if (gitDiffBtn) gitDiffBtn.addEventListener("click", function () {
       $("gitOut").textContent = "Ejecutando…";
       API.runCommand("git diff", ($("termCwd").value || "").trim()).then(showGit);
+    });
+    var gitDiffFileBtn = $("gitDiffFile"); if (gitDiffFileBtn) gitDiffFileBtn.addEventListener("click", function () {
+      var pth = (S.activeTab && S.activeTab.path) ? S.activeTab.path : null;
+      if (!pth) { toast("Abre un archivo primero", "error"); return; }
+      openDiff(pth);
     });
     var gitPullBtn = $("gitPull"); if (gitPullBtn) gitPullBtn.addEventListener("click", function () {
       $("gitOut").textContent = "Ejecutando…";

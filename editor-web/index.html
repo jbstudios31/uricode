@@ -135,6 +135,7 @@
             <button id="gitStatus" class="btn btn-primary btn-sm">Estado</button>
             <button id="gitLog" class="btn btn-ghost btn-sm">Log</button>
             <button id="gitDiff" class="btn btn-ghost btn-sm">Diff</button>
+            <button id="gitDiffFile" class="btn btn-ghost btn-sm">Diff archivo</button>
             <button id="gitPull" class="btn btn-ghost btn-sm">Pull</button>
             <button id="gitPush" class="btn btn-ghost btn-sm">Push</button>
           </div>
@@ -253,6 +254,16 @@
   <div id="palette">
     <input id="paletteInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Buscar archivo por nombre (escribe > para comandos, : para ir a línea)">
     <ul id="paletteList"></ul>
+  </div>
+</div>
+
+<div id="diff-backdrop" style="display:none">
+  <div id="diff-box">
+    <div class="diff-titlebar">
+      <span id="diffTitle">Diff</span>
+      <button id="diffClose" class="tb-btn" title="Cerrar">×</button>
+    </div>
+    <div id="diffHost" style="flex:1;min-height:0"></div>
   </div>
 </div>
 
