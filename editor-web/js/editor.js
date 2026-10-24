@@ -2,7 +2,9 @@
 (function () {
   "use strict";
 
-  var CDN = "https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min";
+  var MONACO_LOCAL = "vendor/monaco";
+  var MONACO_CDN = "https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min";
+  var monacoBase = MONACO_CDN;
 
   var mon = null;          // API global de Monaco
   var editor = null;       // instancia de Monaco
@@ -111,20 +113,23 @@
   }
 
   function loadMonaco() {
-    window.MonacoEnvironment = {
-      getWorkerUrl: function () {
-        return "data:text/javascript;charset=utf-8," + encodeURIComponent(
-          "self.MonacoEnvironment={baseUrl:'" + CDN + "/'};importScripts('" + CDN + "/vs/base/worker/workerMain.js');");
-      }
-    };
-    return loadScript(CDN + "/vs/loader.js", 15000).then(function () {
-      return new Promise(function (resolve, reject) {
-        var t = setTimeout(function () { reject(new Error("timeout")); }, 30000);
-        window.require.config({ paths: { vs: CDN + "/vs" } });
-        window.require(["vs/editor/editor.main"], function () { clearTimeout(t); resolve(); },
-          function (e) { clearTimeout(t); reject(e); });
-      });
-    }).then(function () {
+    function tryBase(base, next) {
+      window.MonacoEnvironment = {
+        getWorkerUrl: function () {
+          return "data:text/javascript;charset=utf-8," + encodeURIComponent(
+            "self.MonacoEnvironment={baseUrl:'" + base + "/'};importScripts('" + base + "/vs/base/worker/workerMain.js');");
+        }
+      };
+      return loadScript(base + "/vs/loader.js", 15000).then(function () {
+        return new Promise(function (resolve, reject) {
+          var t = setTimeout(function () { reject(new Error("timeout")); }, 30000);
+          window.require.config({ paths: { vs: base + "/vs" } });
+          window.require(["vs/editor/editor.main"], function () { clearTimeout(t); monacoBase = base; resolve(); },
+            function (e) { clearTimeout(t); reject(e); });
+        });
+      }).catch(function (e) { return next(); });
+    }
+    return tryBase(MONACO_LOCAL, function () { return tryBase(MONACO_CDN, function () { return Promise.reject(new Error("no monaco")); }); }).then(function () {
       mon = window.monaco;
       mon.editor.defineTheme("uri-dark", {
         base: "vs-dark", inherit: true, rules: [],
