@@ -44,6 +44,8 @@
 
   /* ================= Estado ================= */
   var DEFAULTS = { fontSize: 14, wordWrap: true, minimap: null, autoSave: true, nimKey: "", nimModel: "meta/llama-3.1-8b-instruct", snippets: "" };
+  var APP_VERSION = "3.0.0";
+  var UPDATE_REPO = "jbstudios31/uricode";
 
   var S = {
     settings: Object.assign({}, DEFAULTS),
@@ -1099,6 +1101,54 @@
     });
   }
 
+  function parseVer(v) { return String(v || "").replace(/^v/i, "").split(".").map(function (x) { return parseInt(x, 10) || 0; }); }
+  function cmpVer(a, b) {
+    var pa = parseVer(a), pb = parseVer(b), n = Math.max(pa.length, pb.length);
+    for (var i = 0; i < n; i++) {
+      var x = pa[i] || 0, y = pb[i] || 0;
+      if (x !== y) return x > y ? 1 : -1;
+    }
+    return 0;
+  }
+
+  function checkUpdate(manual) {
+    var status = $("updateStatus");
+    if (status) status.textContent = "Buscando…";
+    fetch("https://api.github.com/repos/" + UPDATE_REPO + "/releases/latest", { headers: { "Accept": "application/vnd.github+json" } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var latest = data && data.tag_name ? data.tag_name : "";
+        var url = data && data.html_url ? data.html_url : ("https://github.com/" + UPDATE_REPO + "/releases");
+        // find apk asset
+        var apkUrl = url;
+        if (data && Array.isArray(data.assets)) {
+          data.assets.forEach(function (a) { if (a && /\.apk$/i.test(a.name) && a.browser_download_url) apkUrl = a.browser_download_url; });
+        }
+        if (!latest) { if (status) status.textContent = "No se pudo obtener la versión."; return; }
+        if (cmpVer(latest, APP_VERSION) > 0) {
+          if (status) status.textContent = "Nueva versión disponible: " + latest;
+          var msg = "Hay una nueva versión (" + latest + "). ¿Abrir la página de descarga?";
+          if (manual || true) {
+            dialog({ title: "Actualización disponible", message: msg, buttons: [
+              { label: "Cancelar", value: "cancel" },
+              { label: "Descargar", value: "ok", primary: true }
+            ] }).then(function (r) {
+              if (r.button === "ok") {
+                try { window.open(apkUrl, "_blank"); } catch (e) { API.shareText("uri-code.apk", apkUrl); }
+              }
+            });
+          }
+        } else {
+          if (status) status.textContent = "Ya tienes la última versión (" + APP_VERSION + ").";
+          if (manual) toast("Ya tienes la última versión");
+        }
+      })
+      .catch(function () {
+        if (status) status.textContent = "No se pudo comprobar (sin conexión).";
+        if (manual) toast("No se pudo comprobar actualizaciones", "error");
+      });
+  }
+
   /* ----- Barra de menús ----- */
   function menuGroups() {
     var has = !!currentTab();
@@ -1338,6 +1388,8 @@
       S.settings.nimModel = e.target.value.trim() || DEFAULTS.nimModel; saveSettings(); Chat.refresh();
     };
     $("setSnippets").oninput = function (e) { S.settings.snippets = e.target.value; saveSettings(); };
+    var cu = $("checkUpdate");
+    if (cu) cu.onclick = function () { checkUpdate(true); };
   }
 
   /* ================= Barra de teclas (móvil) ================= */
@@ -1536,6 +1588,8 @@
     bindUI();
     bindKeys();
     refreshSettingsUI();
+    var vc = $("verCurrent"); if (vc) vc.textContent = APP_VERSION;
+    setTimeout(function () { checkUpdate(false); }, 4000);
 
     Chat.init({
       getSettings: function () { return S.settings; },
