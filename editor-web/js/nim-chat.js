@@ -134,6 +134,12 @@
     return "Error de NVIDIA NIM (HTTP " + status + "): " + String(detail).slice(0, 400);
   }
 
+  function reportError(message) {
+    if (ctx && typeof ctx.log === "function") {
+      try { ctx.log("Chat error: " + String(message), "error"); } catch (e) {}
+    }
+  }
+
   function setBusy(v) {
     busy = v;
     els.send.disabled = v;
@@ -145,7 +151,9 @@
     if (!q) return;
     var s = ctx.getSettings();
     if (!s.nimKey) {
-      addMessage("err", "Falta la API Key de NVIDIA NIM. Pégala en Ajustes.");
+      var keyError = "Falta la API Key de NVIDIA NIM. Pégala en Ajustes.";
+      reportError(keyError);
+      addMessage("err", keyError);
       ctx.openSettings();
       return;
     }
@@ -171,20 +179,38 @@
     }, { model: s.nimModel, messages: messages, temperature: 0.3, max_tokens: 2048, stream: false })
       .then(function (r) {
         if (pending.parentNode) pending.parentNode.removeChild(pending);
-        if (r.status < 200 || r.status >= 300) { addMessage("err", errorText(r.status, r.text, s.nimModel)); return; }
+        if (r.status < 200 || r.status >= 300) {
+          var httpError = errorText(r.status, r.text, s.nimModel);
+          reportError(httpError);
+          addMessage("err", httpError);
+          return;
+        }
         var content = "";
         try {
           var data = JSON.parse(r.text);
           if (data && data.error) {
             var em = data.error.message || data.error; if (typeof em !== "string") em = JSON.stringify(em);
-            addMessage("err", "Error de NVIDIA NIM: " + em); return;
+            var dataError = "Error de NVIDIA NIM: " + em;
+            reportError(dataError);
+            addMessage("err", dataError);
+            return;
           }
           var choice = data && data.choices && data.choices[0];
           var msg = choice && choice.message;
           content = (msg && msg.content) || (choice && choice.text) || (data && data.content) || "";
           if (typeof content !== "string") content = content ? String(content) : "";
-        } catch (e) { addMessage("err", "No se pudo interpretar la respuesta: " + (e && e.message || e)); return; }
-        if (!content) { addMessage("err", "La respuesta llegó vacía o con un formato inesperado."); return; }
+        } catch (e) {
+          var parseError = "No se pudo interpretar la respuesta: " + (e && e.message || e);
+          reportError(parseError);
+          addMessage("err", parseError);
+          return;
+        }
+        if (!content) {
+          var emptyError = "La respuesta llegó vacía o con un formato inesperado.";
+          reportError(emptyError);
+          addMessage("err", emptyError);
+          return;
+        }
         history.push({ role: "user", content: q });
         history.push({ role: "assistant", content: content });
         if (history.length > 40) history = history.slice(-40);
@@ -192,7 +218,9 @@
         addMessage("ai", content);
       }, function (e) {
         if (pending.parentNode) pending.parentNode.removeChild(pending);
-        addMessage("err", "Error inesperado: " + (e && e.message ? e.message : e));
+        var unexpectedError = "Error inesperado: " + (e && e.message ? e.message : e);
+        reportError(unexpectedError);
+        addMessage("err", unexpectedError);
       })
       .then(function () { setBusy(false); });
   }

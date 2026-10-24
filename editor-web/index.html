@@ -46,6 +46,8 @@
     <nav id="activitybar">
       <div class="ab-top">
         <button class="ab-item" data-view="explorer" title="Explorador"><span data-icon="files" data-size="24"></span><span class="ab-badge" id="abBadge"></span></button>
+        <button class="ab-item" data-view="problems" title="Problemas"><span data-icon="error" data-size="24"></span></button>
+        <button class="ab-item" data-view="output" title="Output"><span data-icon="terminal" data-size="24"></span></button>
         <button class="ab-item" data-view="debug" title="Depurar"><span data-icon="debug" data-size="24"></span></button>
         <button class="ab-item" data-view="search" title="Buscar"><span data-icon="search" data-size="24"></span></button>
         <button class="ab-item" data-view="ai" title="Chat IA"><span data-icon="sparkle" data-size="24"></span></button>
@@ -123,6 +125,22 @@
       <section class="view" id="view-debug">
         <div class="view-title"><span>DEPURACIÓN</span></div>
         <div id="debugPanel" class="scroll" style="padding:10px;"></div>
+      </section>
+
+      <section class="view" id="view-problems">
+        <div class="view-title">
+          <span>PROBLEMAS</span>
+          <span class="title-actions"><span id="problemsCount" class="view-count">0</span><button id="problemsRefresh" title="Actualizar problemas"><span data-icon="refresh" data-size="16"></span></button></span>
+        </div>
+        <div id="problemsList" class="problems-list scroll"></div>
+      </section>
+
+      <section class="view" id="view-output">
+        <div class="view-title">
+          <span>OUTPUT</span>
+          <span class="title-actions"><button id="outputClear" title="Limpiar output"><span data-icon="trash" data-size="16"></span></button></span>
+        </div>
+        <div id="outputLog" class="output-log scroll"></div>
       </section>
 
       <section class="view" id="view-terminal">

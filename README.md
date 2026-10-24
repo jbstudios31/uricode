@@ -21,7 +21,9 @@ Editor de código para Android con el aspecto y los atajos de VS Code.
 - **Terminal real** (xterm.js) con salida en streaming, historial con ↑/↓, `cd` persistente y `clear`.
 - **Control de versiones**: estado, log, diff, diff visual por archivo (Monaco Diff Editor), pull, push y commit.
 - **Búsqueda y reemplazo global** en todos los archivos, con mayúsculas y expresiones regulares.
-- **Panel de problemas** clickeable (navega al archivo y la línea).
+- **Panel PROBLEMAS** en la barra lateral (errores y avisos; al pulsar salta al archivo y la línea).
+- **Panel OUTPUT** con el registro de eventos de la app.
+- **Multi-cursor**: cursor arriba/abajo, seleccionar la siguiente aparición y todas las apariciones, e ir a la llave correspondiente.
 - **Vista de depuración** (DAP) con puntos de interrupción en el margen del editor.
 - **Chat IA con NVIDIA NIM** con contexto del archivo, inserta o reemplaza código, y botón «Probar conexión IA».
 - **Workspace multi-raíz**: varias carpetas en el explorador.
@@ -70,6 +72,8 @@ npm run test:runtime  # arranque de la app en un DOM simulado
 
 - **`tests/smoke.js`**: comprueba la sintaxis de todos los scripts, carga los módulos `UriExtensions`, `UriLSP` y `UriDebug`, valida el orden de carga de los scripts y los recursos de la interfaz. Además hace un análisis estático que detecta llamadas a funciones inexistentes en cada archivo.
 - **`tests/runtime.test.js`**: ejecuta la app completa en un DOM simulado (`tests/dom.js`) y comprueba que arranca sin excepciones, que el workspace multi-raíz se dibuja y que las APIs de archivos, extensiones, depuración y LSP responden.
+- **`tests/panels.test.js`**: prueba los paneles PROBLEMAS y OUTPUT.
+- **`tests/cursor.test.js`**: prueba el multi-cursor y la navegación de llaves con un doble de Monaco.
 - **`tests/chat.test.js`**: prueba el flujo completo del chat IA (NIM): apertura desde la barra de actividad, envío con contexto del archivo, respuesta, error HTTP y botón «Probar conexión IA».
 - **`tests/features.test.js`**: prueba las funciones con el puente nativo simulado (`tests/native-mock.js`, mismo contrato que `MainActivity.java`): buscar, reemplazar en todos los archivos, terminal con salida y streaming, y el puente HTTP del chat IA (NVIDIA NIM).
 

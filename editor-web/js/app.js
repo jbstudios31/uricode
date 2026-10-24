@@ -61,7 +61,9 @@
     fileListCache: null,
     searchToken: 0,
     roots: [],            // carpetas raíz del workspace (rutas relativas al sandbox)
-    rootsLoaded: false
+    rootsLoaded: false,
+    problemMarkers: [],
+    outputLines: []
   };
 
   /* ---------- Workspace multi-raíz ---------- */
@@ -128,8 +130,45 @@
 
   /* ================= Avisos, diálogos y menús ================= */
   var toastTimer = null;
+  function outputTimestamp() {
+    var d = new Date();
+    function pad(n) { return (n < 10 ? "0" : "") + n; }
+    return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  }
+  function outputLine(time, msg, kind) {
+    var line = document.createElement("div");
+    line.className = "output-line" + (kind === "error" ? " error" : "");
+    line.setAttribute("data-time", time);
+    line.textContent = "[" + time + "] " + String(msg == null ? "" : msg);
+    return line;
+  }
+  function log(msg, kind) {
+    var time = outputTimestamp();
+    var text = String(msg == null ? "" : msg);
+    S.outputLines.push({ time: time, text: text, kind: kind || "" });
+    if (S.outputLines.length > 500) S.outputLines.shift();
+    var box = $("outputLog");
+    if (box) {
+      box.appendChild(outputLine(time, text, kind));
+      var children = box._children || box.children || [];
+      while (children.length > 500) box.removeChild(children[0]);
+      box.scrollTop = box.scrollHeight;
+    }
+    return text;
+  }
+  function renderOutput() {
+    var box = $("outputLog");
+    if (!box) return;
+    box.innerHTML = "";
+    S.outputLines.forEach(function (entry) {
+      box.appendChild(outputLine(entry.time, entry.text, entry.kind));
+    });
+    box.scrollTop = box.scrollHeight;
+  }
   function toast(msg, kind) {
+    log(msg, kind);
     var t = $("toast");
+    if (!t) return;
     t.textContent = msg;
     t.className = "show" + (kind === "error" ? " error" : "");
     clearTimeout(toastTimer);
@@ -225,6 +264,8 @@
     });
   }
   function setView(name, focusInput) {
+    if (name === "problems") refreshProblems();
+    if (name === "output") renderOutput();
     if (S.view === name && sidebarVisible() && !focusInput) { showSidebar(false); return; }
     S.view = name;
     document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("active", v.id === "view-" + name); });
@@ -651,6 +692,7 @@
     if (pos && pos.line) UriEditor.gotoLine(pos.line, pos.col, pos.len);
     renderTabs();
     updateChrome();
+    refreshProblems();
     closeSidebarIfNarrow();
     persistSession();
   }
@@ -769,6 +811,7 @@
         } else {
           renderTabs(); updateChrome();
         }
+        refreshProblems();
         persistSession();
         return true;
       });
@@ -813,6 +856,7 @@
         UriEditor.show(S.tabs[i].path, false);
       }
       renderTabs(); updateChrome();
+      refreshProblems();
     });
   }
 
@@ -823,8 +867,10 @@
     $("sbEol").textContent = c.eol;
   }
   function onMarkers(m) {
-    $("sbErrCount").textContent = m.errors;
-    $("sbWarnCount").textContent = m.warnings;
+    m = m || {};
+    $("sbErrCount").textContent = String(m.errors || 0);
+    $("sbWarnCount").textContent = String(m.warnings || 0);
+    refreshProblems();
   }
 
   /* ================= Lista de archivos (Ir a archivo / búsqueda) ================= */
@@ -1048,6 +1094,11 @@
     { label: "Editor: Buscar", key: "Ctrl+F", run: editorAction("actions.find") },
     { label: "Editor: Reemplazar", key: "Ctrl+H", run: editorAction("editor.action.startFindReplace") },
     { label: "Editor: Ir a línea…", key: "Ctrl+G", run: function () { openPalette(":"); } },
+    { label: "Editor: Añadir cursor arriba", key: "Ctrl+Alt+Up", run: editorAction("editor.action.insertCursorAbove") },
+    { label: "Editor: Añadir cursor abajo", key: "Ctrl+Alt+Down", run: editorAction("editor.action.insertCursorBelow") },
+    { label: "Editor: Seleccionar siguiente aparición", key: "Ctrl+D", run: editorAction("editor.action.addSelectionToNextFindMatch") },
+    { label: "Editor: Seleccionar todas las apariciones", key: "Ctrl+Shift+L", run: editorAction("editor.action.selectAllOccurrences") },
+    { label: "Ir a llave correspondiente", key: "Ctrl+]", run: editorAction("editor.action.bracketMatch") },
     { label: "Editor: Formatear documento", run: editorAction("editor.action.formatDocument") },
     { label: "Editor: Ir a símbolo en archivo", run: editorAction("editor.action.quickOutline") },
     { label: "Editor: Alternar comentario de línea", key: "Ctrl+/", run: editorAction("editor.action.commentLine") },
@@ -1300,6 +1351,7 @@
   function checkUpdate(manual) {
     var status = $("updateStatus");
     if (status) status.textContent = "Buscando…";
+    log("Update check started");
     fetch("https://api.github.com/repos/" + UPDATE_REPO + "/releases/latest", { headers: { "Accept": "application/vnd.github+json" } })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -1310,8 +1362,13 @@
         if (data && Array.isArray(data.assets)) {
           data.assets.forEach(function (a) { if (a && /\.apk$/i.test(a.name) && a.browser_download_url) apkUrl = a.browser_download_url; });
         }
-        if (!latest) { if (status) status.textContent = "No se pudo obtener la versión."; return; }
+        if (!latest) {
+          log("Update check result: no version found", "error");
+          if (status) status.textContent = "No se pudo obtener la versión.";
+          return;
+        }
         if (cmpVer(latest, APP_VERSION) > 0) {
+          log("Update check result: " + latest + " available");
           if (status) status.textContent = "Nueva versión disponible: " + latest;
           var msg = "Hay una nueva versión (" + latest + "). ¿Abrir la página de descarga?";
           if (manual || true) {
@@ -1325,11 +1382,13 @@
             });
           }
         } else {
+          log("Update check result: up to date (" + APP_VERSION + ")");
           if (status) status.textContent = "Ya tienes la última versión (" + APP_VERSION + ").";
           if (manual) toast("Ya tienes la última versión");
         }
       })
-      .catch(function () {
+      .catch(function (e) {
+        log("Update check result: failed (" + String(e && e.message || e) + ")", "error");
         if (status) status.textContent = "No se pudo comprobar (sin conexión).";
         if (manual) toast("No se pudo comprobar actualizaciones", "error");
       });
@@ -1355,6 +1414,12 @@
       edit: [
         { label: "Deshacer", hint: "Ctrl+Z", disabled: !has, run: function () { UriEditor.undo(); } },
         { label: "Rehacer", hint: "Ctrl+Y", disabled: !has, run: function () { UriEditor.redo(); } },
+        { separator: true },
+        { label: "Editor: Añadir cursor arriba", hint: "Ctrl+Alt+Up", disabled: !has, run: act("editor.action.insertCursorAbove") },
+        { label: "Editor: Añadir cursor abajo", hint: "Ctrl+Alt+Down", disabled: !has, run: act("editor.action.insertCursorBelow") },
+        { label: "Editor: Seleccionar siguiente aparición", hint: "Ctrl+D", disabled: !has, run: act("editor.action.addSelectionToNextFindMatch") },
+        { label: "Editor: Seleccionar todas las apariciones", hint: "Ctrl+Shift+L", disabled: !has, run: act("editor.action.selectAllOccurrences") },
+        { label: "Ir a llave correspondiente", hint: "Ctrl+]", disabled: !has, run: act("editor.action.bracketMatch") },
         { separator: true },
         { label: "Buscar", hint: "Ctrl+F", disabled: !has, run: act("actions.find") },
         { label: "Reemplazar", hint: "Ctrl+H", disabled: !has, run: act("editor.action.startFindReplace") },
@@ -1606,48 +1671,95 @@
     $("diffHost").innerHTML = "";
   }
 
-  function showProblems() {
+  function markerPath(marker) {
+    var resource = marker && marker.resource;
+    var path = "";
+    if (typeof resource === "string") {
+      path = resource;
+    } else if (resource) {
+      path = resource.path || resource.fsPath || "";
+      if (!path && typeof resource.toString === "function") path = resource.toString();
+    }
+    path = String(path || "");
+    if (path.indexOf("file://") === 0) {
+      try { path = decodeURIComponent(path.replace(/^file:\/\//, "")); } catch (e) {}
+    }
+    return path.replace(/^\/+/, "");
+  }
+
+  function markerPosition(marker) {
+    marker = marker || {};
+    var range = marker.range || {};
+    var line = marker.startLineNumber || range.startLineNumber || 1;
+    var col = marker.startColumn || range.startColumn || 1;
+    var endLine = marker.endLineNumber || range.endLineNumber || line;
+    var endCol = marker.endColumn || range.endColumn || col;
+    var len = marker.length || 1;
+    if (endLine === line && endCol > col) len = endCol - col;
+    return { line: line, col: col, len: len };
+  }
+
+  function collectProblemMarkers() {
+    var mon = window.monaco;
+    if (!mon && typeof monaco !== "undefined") mon = monaco;
     var markers = [];
     try {
-      monaco.editor.getModelMarkers({}).forEach(function (m) {
-        markers.push(m);
-      });
+      if (mon && mon.editor && typeof mon.editor.getModelMarkers === "function") {
+        markers = mon.editor.getModelMarkers({}) || [];
+      }
     } catch (e) {}
-    // filter to open tabs? show all
-    var backdrop = document.createElement("div");
-    backdrop.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:200;display:flex;align-items:stretch;justify-content:stretch;padding:24px";
-    var box = document.createElement("div");
-    box.style.cssText = "flex:1;display:flex;flex-direction:column;background:var(--bg-editor);border:1px solid var(--border-light);border-radius:4px;overflow:hidden";
-    var title = document.createElement("div");
-    title.style.cssText = "height:32px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:var(--bg-title);font-size:12px";
-    title.innerHTML = "<span>Problemas (" + markers.length + ")</span>";
-    var close = document.createElement("button");
-    close.className = "tb-btn";
-    close.textContent = "×";
-    close.onclick = function () { document.body.removeChild(backdrop); };
-    title.appendChild(close);
-    var list = document.createElement("div");
-    list.style.cssText = "flex:1;overflow:auto;padding:8px;font-family:var(--font-mono);font-size:12px";
+    return Array.isArray(markers) ? markers.slice() : [];
+  }
+
+  function refreshProblems() {
+    var markers = collectProblemMarkers();
+    S.problemMarkers = markers;
+    var count = $("problemsCount");
+    if (count) count.textContent = String(markers.length);
+    var list = $("problemsList");
+    if (!list) return markers;
+    list.innerHTML = "";
     if (!markers.length) {
-      list.textContent = "Sin problemas.";
-    } else {
-      markers.forEach(function (m) {
-        var row = document.createElement("div");
-        row.style.cssText = "padding:4px 6px;cursor:pointer;border-bottom:1px solid var(--border)";
-        row.textContent = (m.severity === 8 ? "Error" : "Warning") + "  " + (m.resource ? m.resource.path.split("/").pop() : "") + ":" + m.startLineNumber + "  " + m.message;
-        row.onclick = function () {
-          var r = m.resource && m.resource.path;
-          if (r) openFile(r, { line: m.startLineNumber, col: m.startColumn });
-          document.body.removeChild(backdrop);
-        };
-        list.appendChild(row);
-      });
+      var empty = document.createElement("div");
+      empty.className = "empty-note problems-empty";
+      empty.textContent = "No hay problemas.";
+      list.appendChild(empty);
+      return markers;
     }
-    box.appendChild(title);
-    box.appendChild(list);
-    backdrop.appendChild(box);
-    backdrop.addEventListener("click", function (e) { if (e.target === backdrop) document.body.removeChild(backdrop); });
-    document.body.appendChild(backdrop);
+    markers.forEach(function (marker) {
+      var path = markerPath(marker);
+      var pos = markerPosition(marker);
+      var severity = marker && marker.severity === 8 ? "error" : "warning";
+      var severityLabel = severity === "error" ? "Error" : "Warning";
+      var message = marker && marker.message ? String(marker.message) : "";
+      var fileName = path ? baseName(path) : "Archivo";
+      var row = document.createElement("div");
+      row.className = "row problem-row problem " + severity;
+      row.setAttribute("data-path", path);
+      row.setAttribute("data-line", String(pos.line));
+      row.setAttribute("data-col", String(pos.col));
+      row.setAttribute("data-severity", severity);
+      row.setAttribute("data-message", message);
+      row.setAttribute("aria-label", severityLabel + " " + fileName + ":" + pos.line + ":" + pos.col + " " + message);
+      var icon = window.Icons && window.Icons.svg ? window.Icons.svg(severity, 16) : "";
+      row.innerHTML = '<span class="problem-severity ' + severity + ' severity-icon" title="' + severityLabel + '" aria-label="' + severityLabel + '">' + icon + "</span>" +
+        '<span class="problem-file">' + esc(fileName) + "</span>" +
+        '<span class="problem-position">' + pos.line + ":" + pos.col + "</span>" +
+        '<span class="problem-message">' + esc(message) + "</span>";
+      row.addEventListener("click", function () { openProblem(path, pos); });
+      list.appendChild(row);
+    });
+    return markers;
+  }
+
+  function openProblem(path, pos) {
+    if (!path) return;
+    openFile(path, { line: pos.line, col: pos.col, len: pos.len || 1 });
+  }
+
+  function showProblems() {
+    refreshProblems();
+    setView("problems", true);
   }
 
 
@@ -1790,24 +1902,30 @@
     }
     function runTermCmd(cmd) {
       var cwd = ($("termCwd").value || "").trim();
-      if (cmd === "clear" || cmd === "cls") { term.clear(); term.write("$ "); return; }
+      if (cmd === "clear" || cmd === "cls") {
+        log("Terminal command completed: " + cmd + " (code 0)");
+        if (term) { term.clear(); term.write("$ "); }
+        return;
+      }
       if (/^cd(\s|$)/.test(cmd)) {
         var target = cmd.slice(2).trim() || "~";
         API.runCommand("cd " + (target || ".") + " && pwd", cwd).then(function (r) {
           if (r.code === 0 && r.stdout) {
             var np = r.stdout.trim();
             if (np) $("termCwd").value = np;
-            term.write("\r\n$ ");
+            if (term) term.write("\r\n$ ");
           } else {
-            term.write("\r\n" + (r.stderr || "cd: error") + "\r\n$ ");
+            if (term) term.write("\r\n" + (r.stderr || "cd: error") + "\r\n$ ");
           }
+          log("Terminal command completed: " + cmd + " (code " + (r.code != null ? r.code : "?") + ")");
         });
         return;
       }
       API.runCommandStream(cmd, cwd, function (chunk) {
-        term.write(String(chunk).replace(/\n/g, "\r\n"));
+        if (term) term.write(String(chunk).replace(/\n/g, "\r\n"));
       }).then(function (r) {
-        term.write("\r\n[código " + (r.code != null ? r.code : "?") + "]\r\n$ ");
+        if (term) term.write("\r\n[código " + (r.code != null ? r.code : "?") + "]\r\n$ ");
+        log("Terminal command completed: " + cmd + " (code " + (r.code != null ? r.code : "?") + ")");
       });
     }
 
@@ -1870,6 +1988,11 @@
       }
       if (e.key === "Escape" && document.body.classList.contains("menu-open")) { closeMenu(); return; }
       if (e.key === "F1") { e.preventDefault(); openPalette(">"); return; }
+      if (ctrl && e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        e.preventDefault();
+        if (needTab()) UriEditor.action(e.key === "ArrowUp" ? "editor.action.insertCursorAbove" : "editor.action.insertCursorBelow");
+        return;
+      }
       if (!ctrl) return;
       if (e.key === "PageDown") { e.preventDefault(); cycleTab(1); return; }
       if (e.key === "PageUp") { e.preventDefault(); cycleTab(-1); return; }
@@ -1903,6 +2026,7 @@
     document.querySelectorAll("[data-icon]").forEach(function (el) {
       el.innerHTML = Icons.svg(el.getAttribute("data-icon"), parseInt(el.getAttribute("data-size"), 10) || 16);
     });
+    renderOutput();
 
     document.querySelectorAll(".ab-item").forEach(function (b) {
       b.addEventListener("click", function () { setView(b.getAttribute("data-view")); });
@@ -1939,6 +2063,11 @@
     $("btnPalette").onclick = function () { openPalette(">"); };
     $("sbBrand").onclick = function () { openPalette(">"); };
     var sbe = $("sbErrors"); if (sbe) sbe.addEventListener("click", showProblems);
+    var problemsRefresh = $("problemsRefresh"); if (problemsRefresh) problemsRefresh.addEventListener("click", refreshProblems);
+    var outputClear = $("outputClear"); if (outputClear) outputClear.addEventListener("click", function () {
+      S.outputLines = [];
+      renderOutput();
+    });
     var sbSpaces = $("sbSpaces"); if (sbSpaces) sbSpaces.addEventListener("click", function () {
       if (!currentTab()) return;
       var cur = S.settings.tabSize || 4;
@@ -1995,14 +2124,20 @@
 
   /* ================= Extensiones ================= */
   function setupExtensions() {
-    if (!window.UriExtensions) return;
+    if (!window.UriExtensions) {
+      log("Extensions loaded: 0 (unavailable)");
+      return;
+    }
     try {
       window.UriExtensions.registerHost({
         toast: function (msg, kind) { toast(msg, kind); }
       });
       var n = window.UriExtensions.loadBundled();
+      log("Extensions loaded: " + n);
       if (n) toast(n + " extensión(es) cargada(s)");
-    } catch (e) {}
+    } catch (e) {
+      log("Extensions loaded: error (" + String(e && e.message || e) + ")", "error");
+    }
   }
 
   function extensionCommands() {
@@ -2090,6 +2225,7 @@
   function boot() {
     loadSettings();
     bindUI();
+    log("App start: Uri Code iniciado");
     bindKeys();
     applySettings();
     loadRoots().then(function () { return refreshTree(); });
@@ -2102,6 +2238,7 @@
       UriEditor.ready().then(function () {
         var ed = monaco.editor.getEditors()[0];
         if (!ed) return;
+        if (typeof ed.onKeyDown !== "function") return;
         ed.onKeyDown(function (e) {
           if (e.keyCode === monaco.KeyCode.Tab && snippetSession) {
             e.preventDefault();
@@ -2140,6 +2277,7 @@
       },
       openSettings: function () { setView("settings", true); },
       toast: toast,
+      log: log,
       confirm: askConfirm
     });
 
@@ -2161,11 +2299,23 @@
     UriEditor.init($("editor-root"), {
       fontSize: S.settings.fontSize, wordWrap: S.settings.wordWrap, minimap: S.settings.minimap
     }).then(function (mode) {
+      log("Editor mode: " + (mode === "fallback" ? "fallback" : "monaco"));
       $("welcomeLoading").classList.add("hidden");
       if (mode === "fallback") toast("Sin conexión: usando el editor básico (sin resaltado). Reinicia con internet para cargar Monaco.");
       return restoreSession();
-    }).catch(function () {});
+    }).catch(function (e) {
+      log("Editor mode: error (" + String(e && e.message || e) + ")", "error");
+    });
   }
+
+  window.UriCodePanels = {
+    refreshProblems: refreshProblems,
+    onMarkers: onMarkers,
+    getProblems: function () { return S.problemMarkers.slice(); },
+    log: log,
+    showProblems: showProblems,
+    setView: setView
+  };
 
   boot();
 })();
