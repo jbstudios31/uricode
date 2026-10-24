@@ -154,8 +154,27 @@ function createSandbox(opts) {
     _s: {},
     add: function (c) { this._s[c] = 1; },
     remove: function (c) { delete this._s[c]; },
-    toggle: function (c) { this._s[c] = this._s[c] ? 0 : 1; },
+    toggle: function (c, v) {
+      // Semantica real del DOM: con force (v) establece, sin el alterna.
+      if (v === undefined) this._s[c] = this._s[c] ? 0 : 1;
+      else this._s[c] = v ? 1 : 0;
+    },
     contains: function (c) { return !!this._s[c]; }
+  };
+
+  // Los listeners a nivel document se registran para poder simular eventos
+  // (por ejemplo, los gestos táctiles sobre gestos de borde).
+  document._listeners = {};
+  document.addEventListener = function (ev, fn) { (document._listeners[ev] = document._listeners[ev] || []).push(fn); };
+  document.removeEventListener = function (ev, fn) {
+    var l = document._listeners[ev]; if (!l) return;
+    var i = l.indexOf(fn); if (i >= 0) l.splice(i, 1);
+  };
+  document.dispatch = function (ev, payload) {
+    var l = (document._listeners[ev] || []).slice();
+    l.forEach(function (fn) {
+      fn.call(document, payload || { preventDefault: function () {}, stopPropagation: function () {} });
+    });
   };
 
   var sandbox = {
@@ -199,7 +218,13 @@ function createSandbox(opts) {
     screen: { width: 1080, height: 1920 },
     innerWidth: opts.innerWidth || 1080,
     innerHeight: opts.innerHeight || 1920,
-    matchMedia: function () { return { matches: false, addListener: function () {}, removeListener: function () {}, addEventListener: function () {}, removeEventListener: function () {} }; },
+    matchMedia: function (q) {
+      var s = String(q || ""), m = false;
+      // El sandbox puede simular pantallas estrechas (navegacion movil) o puntero grueso.
+      if (opts.narrow && s.indexOf("max-width: 760px") >= 0) m = true;
+      else if (opts.coarse && s.indexOf("pointer: coarse") >= 0) m = true;
+      return { matches: m, media: s, addListener: function () {}, removeListener: function () {}, addEventListener: function () {}, removeEventListener: function () {} };
+    },
     requestAnimationFrame: function (fn) { return setTimeout(fn, 0); },
     cancelAnimationFrame: function (id) { clearTimeout(id); },
     getComputedStyle: function () { return { getPropertyValue: function () { return ""; } }; },

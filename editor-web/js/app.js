@@ -570,6 +570,46 @@
   }
   function closeSidebarIfNarrow() { if (isNarrow()) showSidebar(false); }
 
+  /* ----- Gestos de borde (solo pantallas estrechas) -----
+   * Deslizar desde el borde izquierdo hacia la derecha abre la barra lateral;
+   * desde el borde derecho hacia la izquierda la cierra. Solo reacciona si el
+   * toque empieza a menos de 30px del borde y el movimiento es horizontal,
+   * para no interferir con el scroll ni con la pulsación larga del árbol. */
+  function bindEdgeSwipes() {
+    var EDGE = 30, TRIGGER = 56;
+    var side = null, tracking = false, startX = 0, startY = 0, dx = 0, dy = 0;
+    function blocked() {
+      return document.body.classList.contains("menu-open") ||
+        document.body.classList.contains("palette-open") ||
+        document.body.classList.contains("dialog-open");
+    }
+    document.addEventListener("touchstart", function (e) {
+      if (!isNarrow() || !e.touches || e.touches.length !== 1 || blocked()) return;
+      var t = e.touches[0];
+      var w = window.innerWidth || 720;
+      if (t.clientX <= EDGE) side = "left";
+      else if (t.clientX >= w - EDGE) side = "right";
+      else { side = null; return; }
+      tracking = true; startX = t.clientX; startY = t.clientY; dx = 0; dy = 0;
+    }, { passive: true });
+    document.addEventListener("touchmove", function (e) {
+      if (!tracking || !e.touches || e.touches.length !== 1) return;
+      var t = e.touches[0];
+      dx = t.clientX - startX; dy = t.clientY - startY;
+      // Movimiento predominantemente vertical: es scroll, no un swipe.
+      if (Math.abs(dy) > Math.abs(dx)) { tracking = false; side = null; }
+    }, { passive: true });
+    document.addEventListener("touchend", function () {
+      if (!tracking) { side = null; return; }
+      tracking = false;
+      var s = side; side = null;
+      if (Math.abs(dx) < TRIGGER || Math.abs(dy) >= Math.abs(dx)) return;
+      if (s === "left" && dx > 0 && !sidebarVisible()) { showSidebar(true); haptic(10); }
+      else if (s === "right" && dx < 0 && sidebarVisible()) { showSidebar(false); haptic(10); }
+    }, { passive: true });
+    document.addEventListener("touchcancel", function () { tracking = false; side = null; }, { passive: true });
+  }
+
   /* ================= Explorador ================= */
   function targetDir() {
     if (S.selectedType === "dir") return S.selected;
@@ -1524,10 +1564,20 @@
   }
 
   /* ----- Recientes ----- */
+  var RECENTS_KEY = "uri.recents";
+  var RECENTS_LEGACY_KEY = "uri.recent";
+  var RECENTS_MAX = 8;
   function getRecent() {
-    try { var r = JSON.parse(localStorage.getItem("uri.recent")); return Array.isArray(r) ? r : []; } catch (e) { return []; }
+    try {
+      var r = JSON.parse(localStorage.getItem(RECENTS_KEY));
+      if (Array.isArray(r)) return r;
+    } catch (e) {}
+    try {
+      var legacy = JSON.parse(localStorage.getItem(RECENTS_LEGACY_KEY));
+      return Array.isArray(legacy) ? legacy : [];
+    } catch (e) { return []; }
   }
-  function setRecent(r) { try { localStorage.setItem("uri.recent", JSON.stringify(r.slice(0, 6))); } catch (e) {} }
+  function setRecent(r) { try { localStorage.setItem(RECENTS_KEY, JSON.stringify(r.slice(0, RECENTS_MAX))); } catch (e) {} }
   function pushRecent(path) {
     var r = getRecent().filter(function (p) { return p !== path; });
     r.unshift(path); setRecent(r);
@@ -1535,12 +1585,19 @@
   function removeRecent(path) { setRecent(getRecent().filter(function (p) { return p !== path; })); }
   function renderWelcomeRecent() {
     var box = $("welcomeRecent");
+    if (!box) return;
     var list = getRecent();
     box.innerHTML = "";
-    if (!list.length) return;
     var title = document.createElement("div");
     title.className = "wr-title"; title.textContent = "Recientes";
     box.appendChild(title);
+    if (!list.length) {
+      var note = document.createElement("div");
+      note.className = "welcome-empty";
+      note.textContent = "Sin archivos recientes";
+      box.appendChild(note);
+      return;
+    }
     list.forEach(function (p) {
       var b = document.createElement("button");
       b.className = "wr-item";
@@ -1548,6 +1605,31 @@
       b.querySelector(".wr-name").textContent = baseName(p);
       b.querySelector(".wr-dir").textContent = dirName(p);
       b.addEventListener("click", function () { openFile(p); });
+      box.appendChild(b);
+    });
+  }
+
+  /* ----- Bienvenida: tarjetas de acciones rápidas ----- */
+  function buildWelcomeActions() {
+    var box = $("welcomeActions");
+    if (!box) return;
+    var actions = [
+      { icon: "new-file", label: "Nuevo archivo", desc: "Crea un archivo en el proyecto", run: function () { newItem("file"); } },
+      { icon: "search", label: "Abrir archivo", desc: "Busca y abre por nombre", run: function () { openPalette(""); } },
+      { icon: "chevron-right", label: "Paleta de comandos", desc: "Todos los comandos del editor", run: function () { openPalette(">"); } },
+      { icon: "sparkle", label: "Chat IA", desc: "Pregunta y genera código", run: function () { setView("ai", true); } },
+      { icon: "terminal", label: "Terminal", desc: "Ejecuta comandos del sistema", run: function () { setView("terminal", true); } },
+      { icon: "git", label: "Control de versiones", desc: "Estado, commits y ramas", run: function () { setView("git", true); } }
+    ];
+    box.innerHTML = "";
+    actions.forEach(function (a) {
+      var b = document.createElement("button");
+      b.className = "welcome-card";
+      b.innerHTML = '<span class="wc-icon">' + Icons.svg(a.icon, 22) + '</span>' +
+        '<span class="wc-text"><span class="wc-label"></span><span class="wc-desc"></span></span>';
+      b.querySelector(".wc-label").textContent = a.label;
+      b.querySelector(".wc-desc").textContent = a.desc;
+      b.addEventListener("click", a.run);
       box.appendChild(b);
     });
   }
@@ -3038,9 +3120,9 @@
       toast("EOL: " + (eol === "\r\n" ? "CRLF" : "LF"));
     });
     $("sbPos").onclick = function () { if (currentTab()) openPalette(":"); };
-    $("wNewFile").onclick = function () { newItem("file"); };
-    $("wOpen").onclick = function () { openPalette(""); };
-    $("wPalette").onclick = function () { openPalette(">"); };
+    buildWelcomeActions();
+    renderWelcomeRecent();
+    bindEdgeSwipes();
     $("menu-backdrop").addEventListener("click", closeMenu);
     $("palette-backdrop").addEventListener("mousedown", function (e) { if (e.target === this) closePalette(); });
     $("paletteInput").addEventListener("input", refreshPalette);

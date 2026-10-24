@@ -30,6 +30,9 @@ Editor de código para Android con el aspecto y los atajos de VS Code.
 - **Vista de depuración** (DAP) con puntos de interrupción en el margen del editor.
 - **Chat IA con NVIDIA NIM** con contexto del archivo, inserta o reemplaza código, y botón «Probar conexión IA».
 - **Workspace multi-raíz**: varias carpetas en el explorador.
+- **LSP real** para Android: puente nativo (`startLsp`/`sendLsp`/`stopLsp`) con allowlist de servidores (pylsp, pyright, typescript-language-server, clangd, gopls, rust-analyzer, jdtls, lua-language-server), framing estándar `Content-Length`, diagnóstico en vivo como marcadores de Monaco, y límite de vida de 10 minutos por proceso.
+- **Pantalla de bienvenida** tipo VS Code con tarjetas de acciones y archivos recientes.
+- **Gestos de swipe** en los bordes para abrir/cerrar la barra lateral en pantallas estrechas.
 - **Sistema de extensiones** (`editor-web/extensions/`) con registro de comandos.
 - Importar archivos desde el almacenamiento del teléfono, compartir el archivo abierto, recientes y autoguardado.
 
@@ -77,6 +80,7 @@ npm run test:runtime  # arranque de la app en un DOM simulado
 - **`tests/runtime.test.js`**: ejecuta la app completa en un DOM simulado (`tests/dom.js`) y comprueba que arranca sin excepciones, que el workspace multi-raíz se dibuja y que las APIs de archivos, extensiones, depuración y LSP responden.
 - **`tests/git.test.js`**: prueba el parser de `git status --porcelain` y el panel de control de versiones.
 - **`tests/settings.test.js`**: prueba el editor de ajustes buscable y los atajos reconfigurables.
+- **`tests/lsp.test.js`**: prueba el cliente LSP real (framing, initialize, diagnósticos, desconexión) sobre un puente nativo simulado.
 - **`tests/panels.test.js`**: prueba los paneles PROBLEMAS y OUTPUT.
 - **`tests/cursor.test.js`**: prueba el multi-cursor y la navegación de llaves con un doble de Monaco.
 - **`tests/chat.test.js`**: prueba el flujo completo del chat IA (NIM): apertura desde la barra de actividad, envío con contexto del archivo, respuesta, error HTTP y botón «Probar conexión IA».

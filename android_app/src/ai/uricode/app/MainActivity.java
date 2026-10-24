@@ -30,8 +30,14 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class MainActivity extends Activity {
 
@@ -177,6 +183,15 @@ public class MainActivity extends Activity {
     public static class FileAPI {
         private final Context ctx;
         private final WebView web;
+
+        /** Procesos LSP vivos, por id de conexion (para sendLsp/stopLsp). */
+        private static final Map<String, Process> LSP_PROCS = new HashMap<String, Process>();
+        /** Allowlist de language servers que se pueden arrancar. */
+        private static final Set<String> LSP_ALLOW = new HashSet<String>(Arrays.asList(
+            "pylsp", "pyright-langserver", "typescript-language-server", "clangd",
+            "gopls", "rust-analyzer", "jdtls", "lua-language-server"));
+        /** Limite duro de vida de un servidor LSP: 10 minutos. */
+        private static final long LSP_LIFETIME_MS = 10L * 60L * 1000L;
 
         public FileAPI(Context c, WebView w) {
             this.ctx = c;
@@ -453,6 +468,151 @@ public class MainActivity extends Activity {
         }
         private void termDone(final String id, final int code) {
             final String js = "window.__uriTermDone && window.__uriTermDone(" + org.json.JSONObject.quote(id) + "," + code + ")";
+            web.post(new Runnable() { public void run() { try { web.evaluateJavascript(js, null); } catch (Exception ignored) {} } });
+        }
+
+        /* ================= LSP (language servers por stdio) ================= */
+
+        /**
+         * Arranca un language server (stdio) desde una allowlist fija, sin shell.
+         * Callbacks: window.__uriLspData(id, base64chunk) para stdout crudo,
+         * window.__uriLspError(id, base64line) para stderr y
+         * window.__uriLspClosed(id, exitCode) al terminar.
+         */
+        @JavascriptInterface
+        public boolean startLsp(final String id, final String command, final String argsJson, final String relCwd) {
+            if (id == null || id.length() == 0 || command == null) return false;
+            if (!LSP_ALLOW.contains(command)) return false;
+            final List<String> cmd = new ArrayList<String>();
+            cmd.add(command);
+            if (argsJson != null && argsJson.trim().length() > 0) {
+                try {
+                    JSONArray arr = new JSONArray(argsJson);
+                    for (int i = 0; i < arr.length(); i++) cmd.add(String.valueOf(arr.get(i)));
+                } catch (Exception e) {
+                    return false; // argsJson debe ser un array JSON valido
+                }
+            }
+            synchronized (LSP_PROCS) {
+                Process old = LSP_PROCS.get(id);
+                if (old != null) {
+                    try { old.destroyForcibly(); } catch (Exception ignored) {}
+                    LSP_PROCS.remove(id);
+                }
+            }
+            File cwd = resolve(relCwd == null || relCwd.isEmpty() ? "" : relCwd);
+            if (cwd == null || !cwd.isDirectory()) cwd = root();
+            if (cwd == null) return false;
+            try {
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                pb.directory(cwd);
+                pb.redirectErrorStream(false);
+                final Process pr = pb.start();
+                synchronized (LSP_PROCS) { LSP_PROCS.put(id, pr); }
+                final String fId = id;
+                // Watchdog: limite de vida duro de 10 minutos.
+                Thread watchdog = new Thread(new Runnable() {
+                    public void run() {
+                        try { Thread.sleep(LSP_LIFETIME_MS); } catch (InterruptedException e) { return; }
+                        Process p;
+                        synchronized (LSP_PROCS) { p = LSP_PROCS.get(fId); }
+                        if (p != null && p.isAlive()) {
+                            try { p.destroyForcibly(); } catch (Exception ignored) {}
+                        }
+                    }
+                });
+                watchdog.setDaemon(true);
+                watchdog.start();
+                // stderr: linea a linea (base64).
+                new Thread(new Runnable() {
+                    public void run() {
+                        try {
+                            java.io.BufferedReader er = new java.io.BufferedReader(
+                                new java.io.InputStreamReader(pr.getErrorStream(), StandardCharsets.UTF_8));
+                            String line;
+                            while ((line = er.readLine()) != null) {
+                                lspError(fId, Base64.encodeToString(line.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                }).start();
+                // stdout: chunks crudos de bytes (JS reconstruye las tramas LSP).
+                new Thread(new Runnable() {
+                    public void run() {
+                        try {
+                            InputStream in = pr.getInputStream();
+                            byte[] buf = new byte[8192];
+                            int n;
+                            while ((n = in.read(buf)) > 0) {
+                                lspData(fId, Base64.encodeToString(Arrays.copyOf(buf, n), Base64.NO_WRAP));
+                            }
+                        } catch (Exception ignored) {}
+                        int code = -1;
+                        try {
+                            if (pr.waitFor(60, java.util.concurrent.TimeUnit.SECONDS)) {
+                                code = pr.exitValue();
+                            } else {
+                                try { pr.destroyForcibly(); } catch (Exception ignored) {}
+                                pr.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+                                code = pr.exitValue();
+                            }
+                        } catch (Exception e) {
+                            code = -1;
+                        }
+                        synchronized (LSP_PROCS) {
+                            if (LSP_PROCS.get(fId) == pr) LSP_PROCS.remove(fId);
+                        }
+                        lspClosed(fId, code);
+                    }
+                }).start();
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /** Escribe bytes (base64) en el stdin del servidor LSP, sin anadir saltos de linea. */
+        @JavascriptInterface
+        public boolean sendLsp(final String id, final String base64) {
+            Process p;
+            synchronized (LSP_PROCS) { p = LSP_PROCS.get(id); }
+            if (p == null || base64 == null) return false;
+            try {
+                byte[] data = Base64.decode(base64, Base64.NO_WRAP);
+                OutputStream os = p.getOutputStream();
+                os.write(data);
+                os.flush();
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /** Mata el servidor LSP asociado a id y lo retira del mapa. */
+        @JavascriptInterface
+        public boolean stopLsp(final String id) {
+            Process p;
+            synchronized (LSP_PROCS) { p = LSP_PROCS.remove(id); }
+            if (p == null) return false;
+            try { p.destroy(); } catch (Exception ignored) {}
+            try {
+                if (p.isAlive()) p.destroyForcibly();
+            } catch (Exception ignored) {}
+            return true;
+        }
+
+        private void lspData(final String id, final String b64) {
+            final String js = "window.__uriLspData && window.__uriLspData(" + org.json.JSONObject.quote(id) + "," + org.json.JSONObject.quote(b64) + ")";
+            web.post(new Runnable() { public void run() { try { web.evaluateJavascript(js, null); } catch (Exception ignored) {} } });
+        }
+
+        private void lspError(final String id, final String b64) {
+            final String js = "window.__uriLspError && window.__uriLspError(" + org.json.JSONObject.quote(id) + "," + org.json.JSONObject.quote(b64) + ")";
+            web.post(new Runnable() { public void run() { try { web.evaluateJavascript(js, null); } catch (Exception ignored) {} } });
+        }
+
+        private void lspClosed(final String id, final int code) {
+            final String js = "window.__uriLspClosed && window.__uriLspClosed(" + org.json.JSONObject.quote(id) + "," + code + ")";
             web.post(new Runnable() { public void run() { try { web.evaluateJavascript(js, null); } catch (Exception ignored) {} } });
         }
 

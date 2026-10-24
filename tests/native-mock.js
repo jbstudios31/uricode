@@ -27,6 +27,7 @@ function createFileAPI(opts) {
   var vfs = makeVfs(opts.vfs);
   var rootAbs = opts.root || "/data/app/projects";
   var web = opts.web;   // sandbox.window (para los callbacks)
+  var lspProcs = {};    // id -> proceso (mismo contrato que MainActivity)
 
   function save() {
     if (opts.storage) {
@@ -158,6 +159,63 @@ function createFileAPI(opts) {
         }
         web.__uriHttpDone(id, 200, Buffer.from(JSON.stringify({ ok: true, echo: payload }), "utf8").toString("base64"));
       }, 5);
+    },
+
+    /* Contrato LSP (mismas reglas que MainActivity.java): allowlist, spawn sin
+     * shell, stdout en chunks base64 crudos, stderr por lineas, cierre con codigo. */
+    startLsp: function (id, command, argsJson, relCwd) {
+      var ALLOW = ["pylsp", "pyright-langserver", "typescript-language-server", "clangd",
+        "gopls", "rust-analyzer", "jdtls", "lua-language-server"];
+      if (!id || ALLOW.indexOf(String(command)) < 0) return false;
+      var args;
+      try { args = JSON.parse(argsJson || "[]"); } catch (e) { return false; }
+      if (!Array.isArray(args)) return false;
+      try {
+        var pr = cp.spawn(String(command), args.map(String), {
+          cwd: relCwd && opts.cwd ? String(relCwd) : undefined
+        });
+        lspProcs[id] = pr;
+        pr.stdout.on("data", function (chunk) {
+          if (web && web.__uriLspData) web.__uriLspData(id, chunk.toString("base64"));
+        });
+        var errRest = "";
+        pr.stderr.on("data", function (chunk) {
+          errRest += chunk.toString("utf8");
+          var lines = errRest.split("\n");
+          errRest = lines.pop();
+          lines.forEach(function (l) {
+            if (web && web.__uriLspError) web.__uriLspError(id, Buffer.from(l, "utf8").toString("base64"));
+          });
+        });
+        pr.on("exit", function (code) {
+          delete lspProcs[id];
+          if (web && web.__uriLspClosed) web.__uriLspClosed(id, code === null ? -1 : code);
+        });
+        pr.on("error", function () {
+          delete lspProcs[id];
+          if (web && web.__uriLspClosed) web.__uriLspClosed(id, -1);
+        });
+        return true;
+      } catch (e) {
+        return false;
+      }
+    },
+    sendLsp: function (id, b64) {
+      var pr = lspProcs[id];
+      if (!pr) return false;
+      try {
+        pr.stdin.write(Buffer.from(String(b64), "base64"));
+        return true;
+      } catch (e) {
+        return false;
+      }
+    },
+    stopLsp: function (id) {
+      var pr = lspProcs[id];
+      if (!pr) return false;
+      delete lspProcs[id];
+      try { pr.kill(); } catch (e) {}
+      return true;
     }
   };
   return API;
