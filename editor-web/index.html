@@ -6,6 +6,9 @@
 <meta name="theme-color" content="#3c3c3c">
 <title>Uri Code</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
 </head>
 <body>
 
@@ -114,14 +117,11 @@
 
       <section class="view" id="view-terminal">
         <div class="view-title"><span>TERMINAL</span></div>
-        <div class="scroll" style="padding:10px; display:flex; flex-direction:column; gap:8px; height:100%;">
-          <div style="display:flex; gap:6px;">
-            <input id="termCwd" placeholder="Directorio (relativo)" style="flex:1;" class="input">
-            <input id="termCmd" placeholder="Comando" style="flex:2;" class="input">
-            <button id="termRun" class="btn btn-primary btn-sm">Ejecutar</button>
-          </div>
-          <pre id="termOut" class="scroll" style="flex:1; background:#1e1e1e; color:#d4d4d4; padding:8px; font-family:var(--font-mono); font-size:12px; white-space:pre-wrap; margin:0; min-height:120px;"></pre>
+        <div style="padding:6px 10px; display:flex; gap:6px; align-items:center;">
+          <span style="font-size:11px; color:var(--t3);">cwd:</span>
+          <input id="termCwd" placeholder="(raíz de proyectos)" style="flex:1;" class="input">
         </div>
+        <div id="termContainer" style="flex:1; min-height:0; background:#000;"></div>
       </section>
 
       <section class="view" id="view-git">
@@ -180,6 +180,12 @@
             <button id="checkUpdate" class="btn btn-primary btn-sm">Buscar actualizaciones</button>
           </div>
           <div id="updateStatus" class="set-note"></div>
+
+          <div class="set-group">Diagnóstico</div>
+          <div class="set-row">
+            <button id="testAi" class="btn btn-ghost btn-sm">Probar conexión IA</button>
+            <span id="testAiStatus" class="set-note"></span>
+          </div>
 
           <div class="set-group">Acerca de</div>
           <div class="set-note">Uri Code 2.0.0<br>Editor Monaco · Proyectos en el almacenamiento interno de la app.</div>

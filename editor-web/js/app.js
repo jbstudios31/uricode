@@ -1390,6 +1390,20 @@
     $("setSnippets").oninput = function (e) { S.settings.snippets = e.target.value; saveSettings(); };
     var cu = $("checkUpdate");
     if (cu) cu.onclick = function () { checkUpdate(true); };
+    var ta = $("testAi");
+    if (ta) ta.onclick = function () {
+      var s = S.settings;
+      if (!s.nimKey) { toast("Falta API Key", "error"); return; }
+      $("testAiStatus").textContent = "Probando…";
+      window.API.httpPost("https://integrate.api.nvidia.com/v1/chat/completions", {
+        "Authorization": "Bearer " + s.nimKey,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      }, { model: s.nimModel, messages: [{ role: "user", content: "Di hola" }], temperature: 0.3, max_tokens: 32, stream: false })
+        .then(function (r) {
+          $("testAiStatus").textContent = "HTTP " + r.status + (r.status >= 200 && r.status < 300 ? " OK" : " " + String(r.text).slice(0, 120));
+        });
+    };
   }
 
   /* ================= Barra de teclas (móvil) ================= */
@@ -1414,49 +1428,75 @@
   }
 
   function bindTermGit() {
-    function runTerm() {
-      var cmd = ($("termCmd").value || "").trim();
-      var cwd = ($("termCwd").value || "").trim();
-      if (!cmd) return;
-      $("termOut").textContent = "Ejecutando…";
-      API.runCommand(cmd, cwd).then(function (r) {
-        var out = (r.stdout || "") + (r.stderr ? "\n[stderr]\n" + r.stderr : "");
-        $("termOut").textContent = (out.trim() ? out : "(sin salida)") + "\n[código " + r.code + "]";
+    var term = null, fitAddon = null, history = [], histIdx = -1, inputBuf = "";
+    if (typeof Terminal !== "undefined") {
+      term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: "Consolas, 'Roboto Mono', monospace", theme: { background: "#0c0c0c", foreground: "#cccccc" } });
+      if (typeof FitAddon !== "undefined") { fitAddon = new FitAddon.FitAddon(); term.loadAddon(fitAddon); }
+      term.open($("termContainer"));
+      if (fitAddon) try { fitAddon.fit(); } catch (e) {}
+      window.addEventListener("resize", function () { if (fitAddon) try { fitAddon.fit(); } catch (e) {} });
+      term.writeln("Uri Code Terminal. Escribe un comando y presiona Enter.");
+      term.write("$ ");
+      term.onData(function (data) {
+        if (data === "\r") {
+          var line = inputBuf; inputBuf = "";
+          term.write("\r\n");
+          if (line.trim()) {
+            history.unshift(line); if (history.length > 50) history.pop(); histIdx = -1;
+            runTermCmd(line.trim());
+          } else { term.write("$ "); }
+        } else if (data === "\u007f") {
+          if (inputBuf.length > 0) { inputBuf = inputBuf.slice(0, -1); term.write("\b \b"); }
+        } else if (data === "\u001b[A") {
+          if (history.length) {
+            histIdx = Math.min(histIdx + 1, history.length - 1);
+            term.write("\r\x1b[K$ " + history[histIdx]);
+            inputBuf = history[histIdx];
+          }
+        } else if (data === "\u001b[B") {
+          if (histIdx > 0) { histIdx--; term.write("\r\x1b[K$ " + (history[histIdx] || "")); inputBuf = history[histIdx] || ""; }
+          else { histIdx = -1; term.write("\r\x1b[K$ "); inputBuf = ""; }
+        } else if (data.charCodeAt(0) >= 32) {
+          inputBuf += data; term.write(data);
+        }
       });
     }
-    $("termRun").addEventListener("click", runTerm);
-    $("termCmd").addEventListener("keydown", function (e) { if (e.key === "Enter") runTerm(); });
+    function runTermCmd(cmd) {
+      var cwd = ($("termCwd").value || "").trim();
+      API.runCommand(cmd, cwd).then(function (r) {
+        if (r.stdout) term.write(r.stdout.replace(/\n/g, "\r\n"));
+        if (r.stderr) term.write("\r\n" + r.stderr.replace(/\n/g, "\r\n"));
+        term.write("\r\n[código " + r.code + "]\r\n$ ");
+      });
+    }
 
     function showGit(r) { $("gitOut").textContent = (r.stdout || "") + (r.stderr ? "\n[stderr]\n" + r.stderr : "") || "(sin salida)"; }
-    $("gitStatus").addEventListener("click", function () {
+    var gitStatusBtn = $("gitStatus"); if (gitStatusBtn) gitStatusBtn.addEventListener("click", function () {
       $("gitOut").textContent = "Ejecutando…";
       API.runCommand("git status", ($("termCwd").value || "").trim()).then(showGit);
     });
-    $("gitLog").addEventListener("click", function () {
+    var gitLogBtn = $("gitLog"); if (gitLogBtn) gitLogBtn.addEventListener("click", function () {
       $("gitOut").textContent = "Ejecutando…";
       API.runCommand("git log --oneline -20", ($("termCwd").value || "").trim()).then(showGit);
     });
-    $("gitDiff").addEventListener("click", function () {
+    var gitDiffBtn = $("gitDiff"); if (gitDiffBtn) gitDiffBtn.addEventListener("click", function () {
       $("gitOut").textContent = "Ejecutando…";
       API.runCommand("git diff", ($("termCwd").value || "").trim()).then(showGit);
     });
-    $("gitCommit").addEventListener("click", function () {
+    var gitPullBtn = $("gitPull"); if (gitPullBtn) gitPullBtn.addEventListener("click", function () {
+      $("gitOut").textContent = "Ejecutando…";
+      API.runCommand("git pull", ($("termCwd").value || "").trim()).then(showGit);
+    });
+    var gitPushBtn = $("gitPush"); if (gitPushBtn) gitPushBtn.addEventListener("click", function () {
+      $("gitOut").textContent = "Ejecutando…";
+      API.runCommand("git push", ($("termCwd").value || "").trim()).then(showGit);
+    });
+    var gitCommitBtn = $("gitCommit"); if (gitCommitBtn) gitCommitBtn.addEventListener("click", function () {
       var msg = ($("gitMsg").value || "").trim();
       if (!msg) { toast("Escribe un mensaje de commit", "error"); return; }
       $("gitOut").textContent = "Ejecutando…";
       var cwd = ($("termCwd").value || "").trim();
-      API.runCommand("git add -A && git commit -m " + JSON.stringify(msg), cwd).then(function (r) {
-        showGit(r);
-        if (r.code === 0) toast("Commit realizado");
-      });
-    });
-    $("gitPull").addEventListener("click", function () {
-      $("gitOut").textContent = "Ejecutando…";
-      API.runCommand("git pull", ($("termCwd").value || "").trim()).then(showGit);
-    });
-    $("gitPush").addEventListener("click", function () {
-      $("gitOut").textContent = "Ejecutando…";
-      API.runCommand("git push", ($("termCwd").value || "").trim()).then(showGit);
+      API.runCommand("git add -A && git commit -m " + JSON.stringify(msg), cwd).then(function (r) { showGit(r); if (r.code === 0) toast("Commit realizado"); });
     });
   }
 

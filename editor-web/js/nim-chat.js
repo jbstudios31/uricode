@@ -173,9 +173,15 @@
         var content = "";
         try {
           var data = JSON.parse(r.text);
-          var msg = data.choices && data.choices[0] && data.choices[0].message;
-          content = (msg && msg.content) || "";
-        } catch (e) {}
+          if (data && data.error) {
+            var em = data.error.message || data.error; if (typeof em !== "string") em = JSON.stringify(em);
+            addMessage("err", "Error de NVIDIA NIM: " + em); return;
+          }
+          var choice = data && data.choices && data.choices[0];
+          var msg = choice && choice.message;
+          content = (msg && msg.content) || (choice && choice.text) || (data && data.content) || "";
+          if (typeof content !== "string") content = content ? String(content) : "";
+        } catch (e) { addMessage("err", "No se pudo interpretar la respuesta: " + (e && e.message || e)); return; }
         if (!content) { addMessage("err", "La respuesta llegó vacía o con un formato inesperado."); return; }
         history.push({ role: "user", content: q });
         history.push({ role: "assistant", content: content });
