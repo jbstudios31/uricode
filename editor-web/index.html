@@ -38,6 +38,7 @@
       <button data-menu="help">Ayuda</button>
     </nav>
     <div id="titleText" class="title-text">Uri Code</div>
+    <button class="tb-btn mobile-only" id="btnKeybar" title="Mostrar u ocultar barra de teclas" aria-label="Mostrar u ocultar barra de teclas" aria-pressed="true">⌨</button>
     <button class="tb-btn" id="btnPalette" title="Paleta de comandos"><span data-icon="terminal" data-size="18"></span></button>
   </header>
 
@@ -144,12 +145,19 @@
       </section>
 
       <section class="view" id="view-terminal">
-        <div class="view-title"><span>TERMINAL</span></div>
-        <div style="padding:6px 10px; display:flex; gap:6px; align-items:center;">
-          <span style="font-size:11px; color:var(--t3);">cwd:</span>
-          <input id="termCwd" placeholder="(raíz de proyectos)" style="flex:1;" class="input">
+        <div class="view-title terminal-sheet-header" id="terminalSheetHeader">
+          <span class="terminal-sheet-grip" aria-hidden="true"></span>
+          <span class="terminal-sheet-title">TERMINAL</span>
+          <span class="title-actions">
+            <button class="mobile-only" id="terminalKeybarToggle" title="Mostrar u ocultar barra de teclas del editor" aria-label="Mostrar u ocultar barra de teclas del editor" aria-pressed="true">⌨</button>
+            <button class="mobile-only" id="terminalClose" title="Cerrar terminal" aria-label="Cerrar terminal"><span data-icon="close" data-size="16"></span></button>
+          </span>
         </div>
-        <div id="termContainer" style="flex:1; min-height:0; background:#000;"></div>
+        <div class="terminal-cwd">
+          <span>cwd:</span>
+          <input id="termCwd" placeholder="(raíz de proyectos)" class="input">
+        </div>
+        <div id="termContainer" class="terminal-container"></div>
       </section>
 
       <section class="view" id="view-git">
@@ -222,22 +230,30 @@
         <div id="editor-root"></div>
         <div id="welcome">
           <div class="welcome-inner">
-            <svg class="welcome-logo" width="96" height="96"><use href="#uri-logo"/></svg>
-            <h1>Uri Code</h1>
-            <p class="welcome-sub">Editor de código</p>
-            <div class="welcome-actions">
-              <button id="wNewFile"><span data-icon="new-file" data-size="16"></span> Nuevo archivo</button>
-              <button id="wOpen"><span data-icon="search" data-size="16"></span> Ir a archivo…</button>
-              <button id="wPalette"><span data-icon="terminal" data-size="16"></span> Paleta de comandos…</button>
+            <header class="welcome-hero">
+              <svg class="welcome-logo" width="88" height="88"><use href="#uri-logo"/></svg>
+              <h1>Uri Code</h1>
+              <p class="welcome-sub">Tu espacio de trabajo de código para Android, con la potencia de VS Code.</p>
+            </header>
+            <div class="welcome-layout">
+              <section class="welcome-section" aria-labelledby="welcomeActionsTitle">
+                <h2 id="welcomeActionsTitle" class="welcome-section-title">Acciones rápidas</h2>
+                <div id="welcomeActions" class="welcome-actions"></div>
+              </section>
+              <section class="welcome-section welcome-recent-section" aria-labelledby="welcomeRecentTitle">
+                <div id="welcomeRecent"></div>
+              </section>
             </div>
-            <table class="welcome-keys">
-              <tr><td>Ir a archivo</td><td><kbd>Ctrl</kbd> <kbd>P</kbd></td></tr>
-              <tr><td>Paleta de comandos</td><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>P</kbd></td></tr>
-              <tr><td>Guardar</td><td><kbd>Ctrl</kbd> <kbd>S</kbd></td></tr>
-              <tr><td>Barra lateral</td><td><kbd>Ctrl</kbd> <kbd>B</kbd></td></tr>
-              <tr><td>Buscar en archivos</td><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>F</kbd></td></tr>
-            </table>
-            <div id="welcomeRecent"></div>
+            <details class="welcome-shortcuts">
+              <summary>Atajos de teclado</summary>
+              <table class="welcome-keys">
+                <tr><td>Ir a archivo</td><td><kbd>Ctrl</kbd> <kbd>P</kbd></td></tr>
+                <tr><td>Paleta de comandos</td><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>P</kbd></td></tr>
+                <tr><td>Guardar</td><td><kbd>Ctrl</kbd> <kbd>S</kbd></td></tr>
+                <tr><td>Barra lateral</td><td><kbd>Ctrl</kbd> <kbd>B</kbd></td></tr>
+                <tr><td>Buscar en archivos</td><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>F</kbd></td></tr>
+              </table>
+            </details>
             <p id="welcomeLoading" class="welcome-loading">Cargando editor…</p>
           </div>
         </div>

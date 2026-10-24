@@ -10,7 +10,8 @@
     "test:features": "node tests/features.test.js",
     "test:panels": "node tests/panels.test.js",
     "test:chat": "node tests/chat.test.js",
-    "test:cursor": "node tests/cursor.test.js",
+    "test:cursor": "node tests/cursor.test.js && node tests/mobile.test.js",
+    "test:mobile": "node tests/mobile.test.js",
     "test:git": "node tests/git.test.js",
     "test:settings": "node tests/settings.test.js"
   }

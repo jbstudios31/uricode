@@ -232,7 +232,8 @@
     rootsLoaded: false,
     problemMarkers: [],
     outputLines: [],
-    terminalFocusHandler: null
+    terminalFocusHandler: null,
+    keybarVisible: true
   };
 
   /* ---------- Workspace multi-raíz ---------- */
@@ -423,14 +424,38 @@
     });
     box.scrollTop = box.scrollHeight;
   }
-  function toast(msg, kind) {
+  function haptic(pattern) {
+    if (!navigator.vibrate) return;
+    try { navigator.vibrate(pattern || 12); } catch (e) {}
+  }
+
+  function toast(msg, kind, options) {
     log(msg, kind);
     var t = $("toast");
     if (!t) return;
+    options = options || {};
     t.textContent = msg;
-    t.className = "show" + (kind === "error" ? " error" : "");
+    t.innerHTML = "";
+    var message = document.createElement("span");
+    message.className = "toast-message";
+    message.textContent = msg;
+    t.appendChild(message);
+    if (options.action && options.action.label) {
+      var action = document.createElement("button");
+      action.id = "toastAction";
+      action.className = "toast-action";
+      action.type = "button";
+      action.textContent = options.action.label;
+      action.addEventListener("click", function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (typeof options.action.run === "function") options.action.run();
+      });
+      t.appendChild(action);
+    }
+    t.setAttribute("data-message", msg);
+    t.className = "show" + (kind === "error" ? " error" : "") + (options.action ? " has-action" : "");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { t.className = ""; }, 2600);
+    toastTimer = setTimeout(function () { t.className = ""; }, options.duration || 2600);
   }
 
   var dialogResolve = null;
@@ -511,8 +536,14 @@
     return isNarrow() ? document.body.classList.contains("sidebar-open") : !document.body.classList.contains("sidebar-hidden");
   }
   function showSidebar(v) {
-    if (isNarrow()) document.body.classList.toggle("sidebar-open", v);
-    else document.body.classList.toggle("sidebar-hidden", !v);
+    if (isNarrow()) {
+      document.body.classList.toggle("sidebar-open", v);
+      if (!v) {
+        document.body.classList.remove("terminal-sheet");
+        var sidebar = $("sidebar");
+        if (sidebar) sidebar.style.transform = "";
+      }
+    } else document.body.classList.toggle("sidebar-hidden", !v);
     updateActivity();
   }
   function updateActivity() {
@@ -527,6 +558,7 @@
     if (name === "git") refreshGit();
     if (S.view === name && sidebarVisible() && !focusInput) { showSidebar(false); return; }
     S.view = name;
+    document.body.classList.toggle("terminal-sheet", name === "terminal" && isNarrow());
     document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("active", v.id === "view-" + name); });
     showSidebar(true);
     if (name === "search") setTimeout(function () { $("searchInput").focus(); $("searchInput").select(); }, 50);
@@ -834,20 +866,93 @@
     });
   }
 
+  function captureDeletedItem(path, type) {
+    var snapshot = { path: path, type: type === "dir" ? "dir" : "file", dirs: [], files: [] };
+    function captureFile(filePath) {
+      return API.readFile(filePath).then(function (content) {
+        snapshot.files.push({ path: filePath, content: String(content == null ? "" : content) });
+      });
+    }
+    function walk(dir) {
+      return API.listDir(dir).then(function (items) {
+        var chain = Promise.resolve();
+        (items || []).forEach(function (item) {
+          chain = chain.then(function () {
+            if (item.type === "dir") {
+              snapshot.dirs.push(item.path);
+              return walk(item.path);
+            }
+            return captureFile(item.path);
+          });
+        });
+        return chain;
+      });
+    }
+    return API.exists(path).then(function (exists) {
+      if (!exists) return null;
+      if (snapshot.type === "dir") {
+        snapshot.dirs.push(path);
+        return walk(path).then(function () { return snapshot; });
+      }
+      return captureFile(path).then(function () { return snapshot; });
+    });
+  }
+
+  function restoreDeletedItem(snapshot) {
+    if (!snapshot) return Promise.resolve(false);
+    return API.exists(snapshot.path).then(function (exists) {
+      if (exists) { toast("Ya existe: " + snapshot.path, "error"); return false; }
+      var dirs = snapshot.dirs.slice().sort(function (a, b) {
+        return a.split("/").length - b.split("/").length;
+      });
+      var chain = Promise.resolve(true);
+      dirs.forEach(function (dir) {
+        chain = chain.then(function (ok) { return ok ? API.mkdir(dir) : false; });
+      });
+      snapshot.files.forEach(function (file) {
+        chain = chain.then(function (ok) { return ok ? API.writeFile(file.path, file.content) : false; });
+      });
+      return chain.then(function (ok) {
+        if (!ok) { toast("No se pudo restaurar " + snapshot.path, "error"); return false; }
+        S.dirCache = {};
+        return refreshTree().then(function () {
+          persistSession();
+          haptic(18);
+          toast("Restaurado: " + baseName(snapshot.path));
+          return true;
+        });
+      });
+    });
+  }
+
   function deleteItem(path, type) {
     var what = type === "dir" ? "la carpeta «" + baseName(path) + "» y todo su contenido" : "«" + baseName(path) + "»";
-    return askConfirm("Eliminar", "¿Seguro que quieres eliminar " + what + "? Esta acción no se puede deshacer.", "Eliminar").then(function (ok) {
-      if (!ok) return;
-      return API.deleteItem(path).then(function (done) {
-        if (!done) { toast("No se pudo eliminar", "error"); return; }
-        var doomed = S.tabs.filter(function (t) { return t.path === path || t.path.indexOf(path + "/") === 0; });
-        var closeChain = Promise.resolve();
-        doomed.forEach(function (t) { closeChain = closeChain.then(function () { return closeTabByPath(t.path); }); });
-        return closeChain.then(function () {
-          Object.keys(S.expanded).forEach(function (k) { if (k === path || k.indexOf(path + "/") === 0) delete S.expanded[k]; });
-          if (S.selected === path || S.selected.indexOf(path + "/") === 0) selectPath("", "dir");
-          S.dirCache = {};
-          return refreshTree().then(function () { persistSession(); toast("Eliminado"); });
+    return askConfirm("Eliminar", "¿Seguro que quieres eliminar " + what + "? Podrás deshacerlo desde el aviso.", "Eliminar").then(function (ok) {
+      if (!ok) return false;
+      return captureDeletedItem(path, type).then(function (snapshot) {
+        if (!snapshot) { toast("No se pudo preparar la eliminación", "error"); return false; }
+        return API.deleteItem(path).then(function (done) {
+          if (!done) { toast("No se pudo eliminar", "error"); return false; }
+          var doomed = S.tabs.filter(function (t) { return t.path === path || t.path.indexOf(path + "/") === 0; });
+          var closeChain = Promise.resolve();
+          doomed.forEach(function (t) { closeChain = closeChain.then(function () { return closeTabByPath(t.path); }); });
+          return closeChain.then(function () {
+            Object.keys(S.expanded).forEach(function (k) { if (k === path || k.indexOf(path + "/") === 0) delete S.expanded[k]; });
+            if (S.selected === path || S.selected.indexOf(path + "/") === 0) selectPath("", "dir");
+            setRecent(getRecent().filter(function (recentPath) {
+              return recentPath !== path && recentPath.indexOf(path + "/") !== 0;
+            }));
+            S.dirCache = {};
+            return refreshTree().then(function () {
+              persistSession();
+              haptic([14, 35, 14]);
+              toast("Eliminado: " + baseName(path), "", {
+                duration: 8000,
+                action: { label: "Deshacer", run: function () { return restoreDeletedItem(snapshot); } }
+              });
+              return true;
+            });
+          });
         });
       });
     });
