@@ -1096,9 +1096,69 @@
       if (!name) return;
       var code = snips[name];
       if (code == null) { toast("Snippet no encontrado", "error"); return; }
-      UriEditor.insertAtCursor(String(code));
+      expandSnippet(String(code));
       toast("Snippet insertado");
     });
+  }
+
+  var snippetSession = null;
+  function expandSnippet(code) {
+    var ed = (window.monaco && monaco.editor && monaco.editor.getEditors) ? monaco.editor.getEditors()[0] : null;
+    if (!ed) { UriEditor.insertAtCursor(code); return; }
+    var model = ed.getModel();
+    var sel = ed.getSelection();
+    var pos = sel.getPosition();
+    // Parse placeholders
+    var re = /\$\{(\d+)(?::([^}]*))?\}|\$(\d+)/g;
+    var text = "";
+    var stops = []; // {num, start, end} offsets in text
+    var last = 0, m;
+    while ((m = re.exec(code)) !== null) {
+      text += code.slice(last, m.index);
+      var num = parseInt(m[1] != null ? m[1] : m[3], 10);
+      var def = (m[2] != null) ? m[2] : "";
+      var start = text.length;
+      text += def;
+      stops.push({ num: num, start: start, end: text.length });
+      last = m.index + m[0].length;
+    }
+    text += code.slice(last);
+    // Insert
+    var startOffset = model.getOffsetAt(pos);
+    ed.executeEdits("snippet", [{ range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column), text: text, forceMoveMarkers: true }]);
+    // Map stops to absolute offsets
+    var absStops = stops.map(function (st) { return { num: st.num, start: startOffset + st.start, end: startOffset + st.end }; });
+    // sort by num, with 0 last
+    absStops.sort(function (a, b) { var an = a.num === 0 ? 9999 : a.num; var bn = b.num === 0 ? 9999 : b.num; return an - bn; });
+    snippetSession = { stops: absStops, idx: 0 };
+    // select first
+    if (absStops.length) {
+      var s0 = absStops[0];
+      var p1 = model.getPositionAt(s0.start);
+      var p2 = model.getPositionAt(s0.end);
+      ed.setSelection(new monaco.Range(p1.lineNumber, p1.column, p2.lineNumber, p2.column));
+    }
+  }
+
+  function snippetNextTab() {
+    if (!snippetSession) return false;
+    var ed = (window.monaco && monaco.editor && monaco.editor.getEditors) ? monaco.editor.getEditors()[0] : null;
+    if (!ed) { snippetSession = null; return false; }
+    var model = ed.getModel();
+    snippetSession.idx++;
+    if (snippetSession.idx >= snippetSession.stops.length) {
+      // end session: place cursor at $0 if exists else end
+      var last = snippetSession.stops[snippetSession.stops.length - 1];
+      var p = model.getPositionAt(last ? last.end : 0);
+      ed.setPosition(p);
+      snippetSession = null;
+      return true;
+    }
+    var st = snippetSession.stops[snippetSession.idx];
+    var p1 = model.getPositionAt(st.start);
+    var p2 = model.getPositionAt(st.end);
+    ed.setSelection(new monaco.Range(p1.lineNumber, p1.column, p2.lineNumber, p2.column));
+    return true;
   }
 
   function parseVer(v) { return String(v || "").replace(/^v/i, "").split(".").map(function (x) { return parseInt(x, 10) || 0; }); }
@@ -1788,6 +1848,24 @@
     bindUI();
     bindKeys();
     applySettings();
+    // Tab para saltar entre tab-stops de snippets
+    if (window.monaco && monaco.editor && monaco.editor.getEditors) {
+      // defer until editor ready
+      UriEditor.ready().then(function () {
+        var ed = monaco.editor.getEditors()[0];
+        if (!ed) return;
+        ed.onKeyDown(function (e) {
+          if (e.keyCode === monaco.KeyCode.Tab && snippetSession) {
+            e.preventDefault();
+            e.stopPropagation();
+            snippetNextTab();
+          }
+          if (e.keyCode === monaco.KeyCode.Escape && snippetSession) {
+            snippetSession = null;
+          }
+        });
+      });
+    }
     var vc = $("verCurrent"); if (vc) vc.textContent = APP_VERSION;
     setTimeout(function () { checkUpdate(false); }, 4000);
 
