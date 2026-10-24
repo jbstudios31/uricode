@@ -206,6 +206,12 @@ function createSandbox(opts) {
     removeEventListener: function () {},
     dispatchEvent: function () { return true; },
     open: function () {},
+    fetch: function () {
+      // Stub: el chequeo de actualizaciones no debe fallar en los tests.
+      return Promise.resolve({
+        ok: false, status: 0, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(""); }
+      });
+    },
     alert: function () {},
     confirm: function () { return true; },
     prompt: function () { return ""; },

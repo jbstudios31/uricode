@@ -1525,7 +1525,9 @@
     if (!q) { toast("Escribe un texto a buscar", "error"); return; }
     var re;
     try { re = buildMatcher(q); } catch (e) { toast("Expresión regular no válida", "error"); return; }
-    ask("Reemplazar todas las coincidencias de \"" + q + "\" por \"" + repl + "\" en todos los archivos?", "Reemplazar todo", "Reemplazar", "Cancelar").then(function (ok) {
+    askConfirm("Reemplazar en todos los archivos",
+      "Se reemplazarán todas las coincidencias de «" + q + "» por «" + repl + "» en todos los archivos del workspace.",
+      "Reemplazar todo").then(function (ok) {
       if (!ok) return;
       var openContent = {};
       S.tabs.forEach(function (t) { openContent[t.path] = UriEditor.getValue(t.path); });
