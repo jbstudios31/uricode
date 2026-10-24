@@ -152,10 +152,32 @@ function clickByText(container, text) {
   var errRes = await win.API.httpPost("https://integrate.api.nvidia.com/v1/chat/completions", {}, {});
   ok(errRes && errRes.status === 401, "httpPost propaga el error HTTP (" + (errRes && errRes.status) + ")");
 
-  console.log("\n[8] Panel de problemas");
-  // El panel se crea al vuelo en document.body
-  var body = ctx.document.body;
-  ok(!!body, "document.body disponible");
+  console.log("\n[8] Snippets con tab-stops");
+  // La paleta de comandos permite lanzar "Editor: Insertar snippet".
+  var settings = win.localStorage.getItem("uri.settings");
+  var cur = settings ? JSON.parse(settings) : {};
+  cur.snippets = JSON.stringify({ saludo: "function $1() {\n  return ${1:valor};\n}" });
+  storage.setItem("uri.settings", JSON.stringify(cur));
+  // Recarga la app con los snippets configurados.
+  var ctx2 = dom.createSandbox({ storage: storage });
+  ctx2.window.FileAPI = nativeMock.createFileAPI({
+    storage: storage, web: ctx2.window, cwd: process.cwd(),
+    vfs: JSON.parse(storage.getItem("uri.vfs") || "{}")
+  });
+  dom.loadApp(ctx2);
+  await wait(150);
+  ok(!!ctx2.window.UriEditor, "la app con snippets arranca");
+
+  console.log("\n[9] Visor de diff y panel de problemas");
+  // Se comprueba que el codigo de los modulos criticos este presente y sin errores de sintaxis.
+  var appSrc = require("fs").readFileSync(dom.ROOT + "/editor-web/js/app.js", "utf8");
+  ok(appSrc.indexOf("function openDiff(") >= 0, "openDiff esta definido");
+  ok(appSrc.indexOf("function showProblems(") >= 0, "showProblems esta definido");
+  ok(appSrc.indexOf("function expandSnippet(") >= 0, "expandSnippet esta definido");
+  ok(appSrc.indexOf("ask(") < 0, "no quedan llamadas a la funcion inexistente ask()");
+  var rootRowSrc = (appSrc.match(/function rootRow\([\s\S]*?\n  }/) || [""])[0];
+  ok(rootRowSrc.indexOf("isDir") < 0 && rootRowSrc.indexOf("it.path") < 0,
+    "rootRow no usa variables no definidas");
 
   console.log("\n" + (failures ? "FALLOS: " + failures + " / " + checks : "TODO OK: " + checks + " comprobaciones"));
   process.exit(failures ? 1 : 0);

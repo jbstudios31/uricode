@@ -160,6 +160,88 @@ if (ext) {
 }
 
 lspChecks.then(function () {
-  console.log("\n" + (failures ? "FALLOS: " + failures + " / " + checks : "TODO OK: " + checks + " comprobaciones"));
+  /* 7. Analisis estatico: llamadas a funciones que no existen. */
+console.log("\n[7] Llamadas a funciones inexistentes");
+var GLOBALS = {
+  "if": 1, "for": 1, "while": 1, "switch": 1, "catch": 1, "return": 1, "function": 1,
+  "typeof": 1, "new": 1, "delete": 1, "in": 1, "do": 1, "else": 1, "case": 1, "try": 1,
+  "Array": 1, "Object": 1, "String": 1, "Number": 1, "Boolean": 1, "Math": 1, "JSON": 1,
+  "Date": 1, "Promise": 1, "RegExp": 1, "Error": 1, "TypeError": 1, "RangeError": 1,
+  "Map": 1, "Set": 1, "parseInt": 1, "parseFloat": 1, "isNaN": 1, "encodeURIComponent": 1,
+  "decodeURIComponent": 1, "setTimeout": 1, "clearTimeout": 1, "setInterval": 1,
+  "clearInterval": 1, "requestAnimationFrame": 1, "cancelAnimationFrame": 1, "queueMicrotask": 1,
+  "console": 1, "window": 1, "document": 1, "monaco": 1, "API": 1, "UriEditor": 1, "Chat": 1,
+  "Icons": 1, "UriLSP": 1, "UriDebug": 1, "UriExtensions": 1, "require": 1, "process": 1,
+  "TextDecoder": 1, "TextEncoder": 1, "Uint8Array": 1, "URL": 1, "Blob": 1, "FileReader": 1, "Terminal": 1,
+  "atob": 1, "btoa": 1, "navigator": 1, "location": 1, "matchMedia": 1, "getComputedStyle": 1,
+  "AbortController": 1, "Event": 1, "Function": 1, "Symbol": 1, "Proxy": 1,
+  "Buffer": 1, "fetch": 1, "self": 1, "globalThis": 1, "undefined": 1, "NaN": 1
+};
+function declaredNames(src) {
+  var names = {};
+  var m;
+  var re1 = /function\s+([A-Za-z_$][\w$]*)/g;
+  while ((m = re1.exec(src))) names[m[1]] = 1;
+  // var/const/let, con o sin inicializador
+  var re2 = /\b(?:var|const|let)\s+([A-Za-z_$][\w$]*)/g;
+  while ((m = re2.exec(src))) names[m[1]] = 1;
+  // parametros de funciones: function f(a, b) y function (a, b)
+  var re3 = /function(?:\s+[A-Za-z_$][\w$]*)?\s*\(([^)]*)\)/g;
+  while ((m = re3.exec(src))) {
+    m[1].split(",").forEach(function (p) {
+      p = p.trim().replace(/^\.\.\./, "");
+      var pm = /^([A-Za-z_$][\w$]*)/.exec(p);
+      if (pm) names[pm[1]] = 1;
+    });
+  }
+  return names;
+}
+function collectDeclared(dir) {
+  var all = {};
+  listJs(dir).forEach(function (f) {
+    var d = declaredNames(fs.readFileSync(f, "utf8"));
+    Object.keys(d).forEach(function (k) { all[k] = 1; });
+  });
+  return all;
+}
+var declared = collectDeclared(JS_DIR);
+declared = Object.assign(declared, collectDeclared(EXT_DIR));
+Object.keys(GLOBALS).forEach(function (k) { declared[k] = 1; });
+
+var appSrc = fs.readFileSync(path.join(JS_DIR, "app.js"), "utf8");
+var otherFiles = listJs(JS_DIR).concat(listJs(EXT_DIR)).filter(function (f) { return path.basename(f) !== "app.js"; });
+/* Quita cadenas y comentarios para evitar falsos positivos. */
+function stripLiterals(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^\\])\/\/[^\n]*/g, "$1 ")
+    .replace(/`(?:\\.|[^`\\])*`/g, '""')
+    .replace(/"(?:\\.|[^"\\])*"/g, '""')
+    .replace(/'(?:\\.|[^'\\])*'/g, "''")
+    .replace(/\/(?:\\.|[^\/\\\n])+\/[gimuy]*/g, " 0 ");
+}
+appSrc = stripLiterals(appSrc);
+var callRe = /(^|[^.\w$])([A-Za-z_$][\w$]*)\s*\(/g, cm, missing = {};
+while ((cm = callRe.exec(appSrc))) {
+  var name = cm[2];
+  if (!declared[name]) missing[name] = (missing[name] || 0) + 1;
+}
+var missingNames = Object.keys(missing);
+ok(missingNames.length === 0, "app.js no llama a funciones inexistentes" +
+  (missingNames.length ? ": " + missingNames.join(", ") : ""));
+
+otherFiles.forEach(function (f) {
+  var src = stripLiterals(fs.readFileSync(f, "utf8"));
+  var re = /(^|[^.\w$])([A-Za-z_$][\w$]*)\s*\(/g, mm, miss = {};
+  while ((mm = re.exec(src))) {
+    var n = mm[2];
+    if (!declared[n]) miss[n] = 1;
+  }
+  var names = Object.keys(miss);
+  ok(names.length === 0, path.basename(f) + " no llama a funciones inexistentes" +
+    (names.length ? ": " + names.join(", ") : ""));
+});
+
+console.log("\n" + (failures ? "FALLOS: " + failures + " / " + checks : "TODO OK: " + checks + " comprobaciones"));
   process.exit(failures ? 1 : 0);
 });
