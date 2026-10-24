@@ -488,6 +488,18 @@
     return false;
   }
 
+  function getCursor() {
+    if (mode === "monaco" && editor && editor.getModel()) {
+      var pos = editor.getPosition();
+      return { line: pos.lineNumber, col: pos.column };
+    }
+    if (mode === "fallback" && fb && currentPath) {
+      var before = fb.value.slice(0, fb.selectionStart);
+      return { line: before.split("\n").length, col: before.length - before.lastIndexOf("\n") };
+    }
+    return null;
+  }
+
   function applyOptions(o) {
     for (var k in o) options[k] = o[k];
     if (mode === "monaco" && editor) {
@@ -510,7 +522,7 @@
     ensure: ensure, show: show, closeModel: closeModel, renamePath: renamePath, setLanguage: setLanguage,
     getValue: getValue, getVersion: getVersion,
     focus: focus, insertAtCursor: insertAtCursor, replaceAll: replaceAll, getSelectedText: getSelectedText,
-    gotoLine: gotoLine, typeText: typeText, pressTab: pressTab, undo: undo, redo: redo,
+    gotoLine: gotoLine, typeText: typeText, pressTab: pressTab, undo: undo, redo: redo, getCursor: getCursor,
     action: action, applyOptions: applyOptions
   };
 })();

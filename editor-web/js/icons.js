@@ -18,6 +18,7 @@
     "save": '<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
     "terminal": '<path d="M5 7l5 5-5 5M12 18h7"/>',
     "git": '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.5 6h3.5a2 2 0 0 1 2 2v2"/>',
+    "debug": '<path d="M8 6h8v4a4 4 0 0 1-8 0z"/><path d="M8 8H5v1a3 3 0 0 0 3 3M16 8h3v1a3 3 0 0 1-3 3M12 14v3M9 20h6M10 17h4"/>',
     "send": '<path d="M4 12L20 4l-6 16-3-7z"/>',
     "trash": '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
     "edit": '<path d="M4 20l4-1 11-11-3-3L5 16z"/>',

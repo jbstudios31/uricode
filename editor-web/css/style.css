@@ -437,3 +437,12 @@ textarea.input { resize: vertical; }
   --warning: #bf8803;
 }
 :root[data-theme="light"] body { background: var(--bg-editor); color: var(--fg); }
+
+/* ---------- Filas de raíz del workspace ---------- */
+.row.root-row { font-weight: 600; color: var(--fg-bright); background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); }
+.row.root-row:hover { background: rgba(255,255,255,0.07); }
+.row.root-row .label { text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
+
+/* ---------- Puntos de interrupción ---------- */
+.debug-breakpoint { background: #e51400; border-radius: 50%; width: 10px !important; height: 10px !important; margin-left: 4px; margin-top: 4px; }
+.debug-breakpoint-line { background: rgba(229,20,0,0.08); }

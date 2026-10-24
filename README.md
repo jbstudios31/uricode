@@ -4,18 +4,29 @@ Editor de código para Android con el aspecto y los atajos de VS Code.
 
 ## Características
 
-- **Editor Monaco** (el motor de VS Code): resaltado, autocompletado, minimapa, buscar/reemplazar, varias pestañas.
-- **Interfaz estilo VS Code**: barra de actividad, explorador con carpetas desplegables, editores abiertos, migas de pan, barra de estado (línea/columna, lenguaje, errores) y tema Dark+.
-- **Barra de menús** (Archivo, Editar, Ver, Ir, Ayuda) en pantallas grandes y menú ☰ en el móvil; menú contextual en pestañas y archivos; barra lateral redimensionable.
-- **Importar archivos** desde el almacenamiento del teléfono (menú Archivo o arrastrando y soltando) y **compartir** el archivo abierto.
-- **Recientes** en la pantalla de bienvenida e insignia con los cambios sin guardar.
-- **Ir a archivo** (`Ctrl+P`), **paleta de comandos** (`Ctrl+Shift+P` / `F1`), **ir a línea** (`Ctrl+G`).
-- **Buscar en archivos** (`Ctrl+Shift+F`) con mayúsculas y expresiones regulares.
-- **Menú contextual** en el explorador (mantén pulsado o pulsa «⋯»): nuevo, renombrar, eliminar.
-- **Guardado automático**, también al salir de la app, y restauración de pestañas al reabrir.
-- **Pensado para móvil**: barra lateral deslizante, barra de teclas extra (`Tab { } ( ) [ ] ; …`), botón «atrás» que cierra paneles.
-- **Chat IA con NVIDIA NIM**: pregunta sobre el archivo o la selección, y copia, inserta o reemplaza el código de las respuestas.
-- Sin conexión usa un editor de texto básico (sin resaltado).
+### Editor
+- **Editor Monaco** (el motor de VS Code) **incluido offline** en el APK; si falta, se recurre al CDN.
+- **IntelliSense**: autocompletado de variables y símbolos, sugerencias de todos los documentos abiertos, cierre automático de llaves y comillas, pistas de parámetros.
+- Resaltado de sintaxis, minimapa, buscar/reemplazar, varias pestañas, folding, aparejamiento de corchetes.
+- **Formateo** con Prettier (JS/TS, JSON, HTML, CSS, Markdown, YAML, GraphQL).
+- **Snippets** con tab-stops (`$1`, `${1:valor}`) y salto entre ellos con `Tab`.
+
+### Interfaz
+- Estilo VS Code: barra de actividad, explorador, pestañas, migas de pan, barra de estado, menús y paleta de comandos.
+- **Tema oscuro (Dark+) y claro (Light+)** seleccionables en Ajustes.
+- Botones, scrollbars, estados hover/active y menús con el aspecto de VS Code.
+- Barra lateral redimensionable, barra de teclas extra para móvil, botón «atrás» que cierra paneles.
+
+### Herramientas
+- **Terminal real** (xterm.js) con salida en streaming, historial con ↑/↓, `cd` persistente y `clear`.
+- **Control de versiones**: estado, log, diff, diff visual por archivo (Monaco Diff Editor), pull, push y commit.
+- **Búsqueda y reemplazo global** en todos los archivos, con mayúsculas y expresiones regulares.
+- **Panel de problemas** clickeable (navega al archivo y la línea).
+- **Vista de depuración** (DAP) con puntos de interrupción en el margen del editor.
+- **Chat IA con NVIDIA NIM** con contexto del archivo, inserta o reemplaza código, y botón «Probar conexión IA».
+- **Workspace multi-raíz**: varias carpetas en el explorador.
+- **Sistema de extensiones** (`editor-web/extensions/`) con registro de comandos.
+- Importar archivos desde el almacenamiento del teléfono, compartir el archivo abierto, recientes y autoguardado.
 
 ## Estructura
 
@@ -28,7 +39,10 @@ UriCode/
 ├── editor-web/             # Interfaz del editor
 │   ├── index.html
 │   ├── css/style.css
-│   └── js/ icons.js · api.js · editor.js · nim-chat.js · app.js
+│   ├── extensions/         # Extensiones (ejemplo: sample.js)
+│   ├── vendor/monaco/      # Monaco offline
+│   └── js/ icons.js · api.js · editor.js · nim-chat.js · lsp.js · debug.js · extensions.js · app.js
+├── tests/smoke.js          # Tests de humo (node)
 ├── build.sh                # genera uri-code.apk
 └── README.md
 ```
@@ -39,13 +53,36 @@ Desde Termux:
 
 ```bash
 pkg install openjdk-17 aapt2 dx apksigner curl zip unzip python
-chmod +x build.sh
-./build.sh
+bash build.sh
 ```
 
-Genera `uri-code.apk`; instálalo en tu dispositivo. La primera vez descarga `android.jar` (puedes indicar uno propio con `ANDROID_JAR=/ruta/android.jar`). Necesita internet para cargar Monaco desde el CDN (queda en caché después).
+> En `/storage` no se puede ejecutar directamente: usa `bash build.sh`, no `./build.sh`.
 
-> El paquete cambió a `ai.uricode.app`, así que se instala como app nueva, separada de MiEditor.
+Genera `uri-code.apk`; instálalo en tu dispositivo. La primera vez descarga `android.jar` (puedes indicar uno propio con `ANDROID_JAR=/ruta/android.jar`).
+
+## Tests
+
+```bash
+npm test        # o: node tests/smoke.js
+```
+
+Comprueba la sintaxis de todos los scripts, carga los módulos `UriExtensions`, `UriLSP` y `UriDebug`, y valida los recursos de la interfaz.
+
+## Atajos principales
+
+| Atajo | Acción |
+|---|---|
+| `Ctrl+P` | Ir a archivo |
+| `Ctrl+Shift+P` / `F1` | Paleta de comandos |
+| `Ctrl+G` | Ir a línea |
+| `Ctrl+Shift+F` | Buscar en archivos |
+| `Ctrl+S` | Guardar |
+| `Ctrl+B` | Mostrar/ocultar barra lateral |
+| `Ctrl+``  | Terminal |
+
+## Releases
+
+https://github.com/jbstudios31/uricode/releases
 
 ## Usar NVIDIA NIM
 
@@ -54,3 +91,8 @@ Genera `uri-code.apk`; instálalo en tu dispositivo. La primera vez descarga `an
 3. Abre el **Chat IA**, escribe tu pregunta y envía. Las peticiones se hacen desde Java, sin problemas de CORS.
 
 La clave se guarda solo en el almacenamiento local de la app.
+
+## Notas de seguridad
+
+- El acceso a archivos está limitado a la carpeta interna `filesDir/projects` de la app (sandbox), con rechazo de rutas que escapan de ella y de enlaces simbólicos.
+- Las peticiones HTTP del chat se validan en Java: solo `http/https`, sin hosts privados, con límites de tamaño.

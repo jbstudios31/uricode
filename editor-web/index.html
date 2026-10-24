@@ -46,6 +46,7 @@
     <nav id="activitybar">
       <div class="ab-top">
         <button class="ab-item" data-view="explorer" title="Explorador"><span data-icon="files" data-size="24"></span><span class="ab-badge" id="abBadge"></span></button>
+        <button class="ab-item" data-view="debug" title="Depurar"><span data-icon="debug" data-size="24"></span></button>
         <button class="ab-item" data-view="search" title="Buscar"><span data-icon="search" data-size="24"></span></button>
         <button class="ab-item" data-view="ai" title="Chat IA"><span data-icon="sparkle" data-size="24"></span></button>
         <button class="ab-item" data-view="terminal" title="Terminal"><span data-icon="terminal" data-size="24"></span></button>
@@ -117,6 +118,11 @@
             <button id="chatSend" title="Enviar"><span data-icon="send" data-size="18"></span></button>
           </div>
         </div>
+      </section>
+
+      <section class="view" id="view-debug">
+        <div class="view-title"><span>DEPURACIÓN</span></div>
+        <div id="debugPanel" class="scroll" style="padding:10px;"></div>
       </section>
 
       <section class="view" id="view-terminal">
@@ -290,6 +296,10 @@
 <script src="js/api.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/nim-chat.js"></script>
+<script src="js/lsp.js"></script>
+<script src="js/debug.js"></script>
+<script src="js/extensions.js"></script>
+<script src="extensions/sample.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

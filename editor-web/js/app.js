@@ -59,8 +59,57 @@
     opening: {},
     autoTimer: null,
     fileListCache: null,
-    searchToken: 0
+    searchToken: 0,
+    roots: [],            // carpetas raíz del workspace (rutas absolutas)
+    rootsLoaded: false
   };
+
+  /* ---------- Workspace multi-raíz ---------- */
+  function loadRoots() {
+    if (S.rootsLoaded) return Promise.resolve(S.roots);
+    var saved = [];
+    try { saved = JSON.parse(localStorage.getItem("uri.roots") || "[]"); } catch (e) {}
+    if (!Array.isArray(saved)) saved = [];
+    // Las raices son rutas relativas dentro de la carpeta de proyectos del sandbox.
+    saved = saved.filter(function (r) { return typeof r === "string"; })
+      .map(function (r) { return r.replace(/^\/+/, "").replace(/\/+$/, ""); })
+      .filter(function (r, i, a) { return a.indexOf(r) === i; });
+    if (!saved.length) saved = [""];
+    S.roots = saved;
+    S.rootsLoaded = true;
+    S.roots.forEach(function (x) { S.expanded[x] = true; });
+    return API.getRoot().then(function (r) {
+      S.rootAbs = String(r || "").trim();
+      return S.roots;
+    }).catch(function () { return S.roots; });
+  }
+  function saveRoots() {
+    try { localStorage.setItem("uri.roots", JSON.stringify(S.roots)); } catch (e) {}
+  }
+  function rootName(root) {
+    if (!root) return (S.rootAbs ? baseName(S.rootAbs) : "Proyecto");
+    var n = baseName(root);
+    return n || root;
+  }
+  function addRoot(path) {
+    path = String(path || "").trim().replace(/^\/+/, "").replace(/\/+$/, "");
+    if (S.roots.indexOf(path) >= 0) return false;
+    S.roots.push(path);
+    S.expanded[path] = true;
+    saveRoots();
+    return true;
+  }
+  function removeRoot(path) {
+    if (S.roots.length <= 1) return false;
+    var i = S.roots.indexOf(path);
+    if (i < 0) return false;
+    S.roots.splice(i, 1);
+    // limpiar caché de las rutas bajo esa raíz
+    Object.keys(S.dirCache).forEach(function (k) { if (k.indexOf(path) === 0) delete S.dirCache[k]; });
+    Object.keys(S.expanded).forEach(function (k) { if (k.indexOf(path) === 0) delete S.expanded[k]; });
+    saveRoots();
+    return true;
+  }
 
   function loadSettings() {
     var s = {};
@@ -188,7 +237,8 @@
   }
 
   function loadDirs() {
-    var paths = [""].concat(Object.keys(S.expanded));
+    var roots = S.roots.length ? S.roots : [""];
+    var paths = roots.concat(Object.keys(S.expanded));
     return Promise.all(paths.map(function (p) {
       var check = p === "" ? Promise.resolve(true) : API.exists(p);
       return check.then(function (ok) {
@@ -233,18 +283,40 @@
     return row;
   }
 
+  function rootRow(root, depth) {
+    var row = document.createElement("div");
+    row.className = "row root-row" + (S.selected === root ? " selected" : "");
+    row.setAttribute("data-path", root);
+    row.setAttribute("data-type", "dir");
+    row.setAttribute("data-root", "1");
+    row.style.paddingLeft = (6 + depth * 12) + "px";
+    var open = isDir && S.expanded[it.path];
+    row.innerHTML =
+      '<span class="chev ' + (S.expanded[root] ? "open" : "") + '">' + Icons.svg("chevron-right", 16) + "</span>" +
+      '<span class="ficon">' + Icons.folderIcon(!!S.expanded[root]) + "</span>" +
+      '<span class="label"></span>';
+    row.querySelector(".label").textContent = rootName(root);
+    return row;
+  }
+
   function renderTree() {
     var tree = $("tree");
     var rows = [];
-    (function walk(path, depth) {
-      (S.dirCache[path] || []).forEach(function (it) {
-        rows.push(rowEl(it, depth));
-        if (it.type === "dir" && S.expanded[it.path]) walk(it.path, depth + 1);
-      });
-    })("", 0);
+    var roots = S.roots.length ? S.roots : [""];
+    roots.forEach(function (root) {
+      rows.push(rootRow(root, 0));
+      if (!S.expanded[root]) return;
+      (function walk(path, depth) {
+        (S.dirCache[path] || []).forEach(function (it) {
+          rows.push(rowEl(it, depth));
+          if (it.type === "dir" && S.expanded[it.path]) walk(it.path, depth + 1);
+        });
+      })(root, 1);
+    });
 
     tree.innerHTML = "";
-    if (!rows.length) {
+    var hasContent = rows.length > roots.length;
+    if (!hasContent) {
       tree.innerHTML = '<div class="empty-note">Todavía no tienes archivos.' +
         '<button id="emptyNewFile">Nuevo archivo</button>' +
         '<button id="emptyNewDir" class="secondary">Nueva carpeta</button></div>';
@@ -283,10 +355,14 @@
   function expandParents(path) {
     var parts = path.split("/");
     var acc = "";
-    var jobs = [];
     for (var i = 0; i < parts.length - 1; i++) {
       acc = join(acc, parts[i]);
       S.expanded[acc] = true;
+    }
+    // Asegura que la raiz del workspace este expandida.
+    var roots = S.roots.length ? S.roots : [""];
+    for (var k = 0; k < roots.length; k++) {
+      if (path === roots[k] || path.indexOf(roots[k] + "/") === 0 || roots[k] === "") S.expanded[roots[k]] = true;
     }
     return loadDirs();
   }
@@ -748,19 +824,32 @@
   function allFiles() {
     if (S.fileListCache) return Promise.resolve(S.fileListCache);
     if (S.fileListPromise) return S.fileListPromise;
-    var out = [], gen = (S.fileListGen = (S.fileListGen || 0) + 1), myGen = gen;
-    function walk(path) {
+    var out = [], seen = {}, gen = (S.fileListGen = (S.fileListGen || 0) + 1), myGen = gen;
+    function walk(path, skipRoot) {
       return API.listDir(path).then(function (items) {
         items = items || [];
         var chain = Promise.resolve();
         items.forEach(function (it) {
-          if (it.type === "file") out.push(it);
-          else if (!SKIP_DIRS[it.name] && out.length < 8000) chain = chain.then(function () { return walk(it.path); });
+          if (it.type === "file") { if (!seen[it.path]) { seen[it.path] = 1; out.push(it); } }
+          else if (!SKIP_DIRS[it.name] && out.length < 8000) {
+            if (skipRoot && skipRoot[it.path]) return; // ya cubierta por otra raiz
+            chain = chain.then(function () { return walk(it.path, skipRoot); });
+          }
         });
         return chain;
       }).catch(function () { return null; });
     }
-    S.fileListPromise = walk("").then(function () {
+    var roots = S.roots.length ? S.roots : [""];
+    // Si una raiz esta dentro de otra, se salta para no duplicar archivos.
+    var skipRoot = {};
+    roots.forEach(function (r) {
+      roots.forEach(function (o) {
+        if (r !== o && o && r.indexOf(o + "/") === 0) skipRoot[r] = 1;
+      });
+    });
+    S.fileListPromise = roots.reduce(function (chain, r) {
+      return chain.then(function () { return walk(r, skipRoot); });
+    }, Promise.resolve()).then(function () {
       if (myGen !== S.fileListGen) return S.fileListCache || [];
       S.fileListCache = out;
       S.fileListPromise = null;
@@ -816,7 +905,8 @@
     if (raw.charAt(0) === ">") {
       Pal.mode = "commands";
       var q = raw.slice(1).trim();
-      var list = COMMANDS.map(function (c) { return { cmd: c, score: q ? fuzzyScore(q, c.label) : 0 }; })
+      var all = COMMANDS.concat(extensionCommands());
+      var list = all.map(function (c) { return { cmd: c, score: q ? fuzzyScore(q, c.label) : 0 }; })
         .filter(function (x) { return x.score >= 0; });
       if (q) list.sort(function (a, b) { return b.score - a.score; });
       Pal.items = list.slice(0, 60).map(function (x) {
@@ -899,10 +989,36 @@
     saveSettings(); applySettings();
   }
 
+  function addRootCommand() {
+    askText("Agregar carpeta al workspace", "", "carpeta dentro del workspace (ej. frontend)",
+      "Actual: " + (S.roots.length ? S.roots.map(rootName).join(", ") : "(ninguna)")).then(function (path) {
+      if (!path) return;
+      path = path.trim();
+      API.exists(path).then(function (ok) {
+        if (!ok) { toast("La carpeta no existe: " + path, "error"); return; }
+        if (!addRoot(path)) { toast("Esa carpeta ya está en el workspace", "error"); return; }
+        refreshTree().then(function () { toast("Carpeta agregada: " + rootName(path)); });
+      });
+    });
+  }
+
+  function removeRootCommand() {
+    if (S.roots.length <= 1) { toast("El workspace necesita al menos una carpeta", "error"); return; }
+    var path = S.selected;
+    if (S.roots.indexOf(path) < 0) {
+      toast("Selecciona una carpeta raíz del workspace", "error"); return;
+    }
+    removeRoot(path);
+    refreshTree().then(function () { toast("Carpeta quitada: " + rootName(path)); });
+  }
+
   var COMMANDS = [
     { label: "Archivo: Nuevo archivo", key: "Ctrl+N", run: function () { newItem("file"); } },
     { label: "Archivo: Nueva carpeta", run: function () { newItem("dir"); } },
     { label: "Archivo: Importar archivos…", run: importFiles },
+    { label: "Archivo: Agregar carpeta al workspace", run: addRootCommand },
+    { label: "Depuración: Alternar punto de interrupción", run: toggleBreakpoint },
+    { label: "Archivo: Quitar carpeta del workspace", run: removeRootCommand },
     { label: "Archivo: Compartir archivo actual", run: shareCurrent },
     { label: "Editor: Insertar snippet", run: insertSnippet },
     { label: "Archivo: Guardar", key: "Ctrl+S", run: saveCurrent },
@@ -1865,11 +1981,83 @@
     window.addEventListener("pagehide", function () { saveAll(true); });
   }
 
+  /* ================= Extensiones ================= */
+  function setupExtensions() {
+    if (!window.UriExtensions) return;
+    try {
+      window.UriExtensions.registerHost({
+        toast: function (msg, kind) { toast(msg, kind); }
+      });
+      var n = window.UriExtensions.loadBundled();
+      if (n) toast(n + " extensión(es) cargada(s)");
+    } catch (e) {}
+  }
+
+  function extensionCommands() {
+    if (!window.UriExtensions) return [];
+    return window.UriExtensions.getCommands().map(function (c) {
+      return { label: "Extensión: " + (c.title || c.id), run: function () { window.UriExtensions.runCommand(c.id); } };
+    });
+  }
+
+  /* ================= Depuración ================= */
+  function setupDebug() {
+    if (!window.UriDebug) return;
+    try {
+      window.UriDebug.renderPanel($("debugPanel"));
+    } catch (e) {}
+    // Mostrar breakpoints en el margen del editor.
+    try {
+      var ed = (window.monaco && monaco.editor && monaco.editor.getEditors) ? monaco.editor.getEditors()[0] : null;
+      if (ed) {
+        var deco = ed.createDecorationsCollection();
+        function paint() {
+          var model = ed.getModel();
+          if (!model) { deco.clear(); return; }
+          var mpath = String(model.uri.path || "").replace(/^\/+/, "");
+          var bps = window.UriDebug.getBreakpoints().filter(function (b) {
+            return String(b.file || "").replace(/^\/+/, "") === mpath;
+          });
+          deco.set(bps.map(function (b) {
+            return {
+              range: new monaco.Range(b.line, 1, b.line, 1),
+              options: {
+                isWholeLine: true,
+                glyphMarginClassName: "debug-breakpoint",
+                glyphMarginHoverMessage: { value: "Punto de interrupción" },
+                className: "debug-breakpoint-line"
+              }
+            };
+          }));
+        }
+        ed.onDidChangeModel(function () { paint(); });
+        window.UriDebug.onEvent(function () { paint(); });
+        setInterval(paint, 2000);
+        paint();
+      }
+    } catch (e) {}
+  }
+
+  function toggleBreakpoint() {
+    if (!currentTab()) { toast("Abre un archivo primero", "error"); return; }
+    if (!window.UriDebug) return;
+    var c = UriEditor.getCursor ? UriEditor.getCursor() : null;
+    var line = (c && c.line) || 1;
+    var path = currentTab().path;
+    var bps = window.UriDebug.getBreakpoints();
+    var exists = bps.some(function (b) { return b.file === path && b.line === line; });
+    if (exists) { window.UriDebug.removeBreakpoint(path, line); toast("Breakpoint quitado: línea " + line); }
+    else { window.UriDebug.setBreakpoint(path, line); toast("Breakpoint en línea " + line); }
+  }
+
   function boot() {
     loadSettings();
     bindUI();
     bindKeys();
     applySettings();
+    loadRoots().then(function () { return refreshTree(); });
+    setupExtensions();
+    setupDebug();
     // Tab para saltar entre tab-stops de snippets
     if (window.monaco && monaco.editor && monaco.editor.getEditors) {
       // defer until editor ready
