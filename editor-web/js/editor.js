@@ -16,9 +16,20 @@
   var fb = null;           // textarea del modo básico
   var fbDocs = {};         // ruta -> {value, selStart, selEnd, scroll}
   var cb = {};
+  var formatQueue = Promise.resolve();
   var readyResolve;
   var readyPromise = new Promise(function (r) { readyResolve = r; });
-  var options = { fontSize: 14, wordWrap: true, minimap: false };
+  var options = {
+    fontSize: 14,
+    wordWrap: true,
+    minimap: false,
+    minimapSide: "right",
+    tabSize: 4,
+    insertSpaces: true,
+    renderWhitespace: "selection",
+    cursorBlink: true,
+    smoothScrolling: true
+  };
 
   function emit(name, arg) { if (typeof cb[name] === "function") { try { cb[name](arg); } catch (e) {} } }
   function on(name, fn) { cb[name] = fn; }
@@ -156,17 +167,19 @@
         fontSize: options.fontSize,
         fontFamily: "Consolas, 'Roboto Mono', 'Droid Sans Mono', 'Courier New', monospace",
         wordWrap: options.wordWrap ? "on" : "off",
-        minimap: { enabled: !!options.minimap },
+        minimap: { enabled: !!options.minimap, side: options.minimapSide === "left" ? "left" : "right" },
         scrollBeyondLastLine: false,
-        renderWhitespace: "selection",
+        renderWhitespace: options.renderWhitespace || "selection",
+        tabSize: options.tabSize || 4,
+        insertSpaces: options.insertSpaces !== false,
         bracketPairColorization: { enabled: true },
         guides: { bracketPairs: true, indentation: true },
         lineNumbersMinChars: 3,
         glyphMargin: true,
         folding: true,
         fixedOverflowWidgets: true,
-        smoothScrolling: true,
-        cursorBlinking: "blink",
+        smoothScrolling: options.smoothScrolling !== false,
+        cursorBlinking: options.cursorBlink === false ? "solid" : "blink",
         padding: { top: 4 },
         scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
         accessibilitySupport: "off",
@@ -249,6 +262,7 @@
     fb.setAttribute("autocomplete", "off");
     fb.wrap = options.wordWrap ? "soft" : "off";
     fb.style.fontSize = options.fontSize + "px";
+    fb.style.tabSize = String(options.tabSize || 4);
     fb.style.display = "none";
     host.appendChild(fb);
     fb.addEventListener("input", function () {
@@ -265,7 +279,7 @@
     fb.addEventListener("keydown", function (e) {
       if (e.key === "Tab" && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        insertInTextarea("  ");
+        insertIndentInTextarea();
       }
     });
   }
@@ -276,6 +290,15 @@
     fb.value = fb.value.slice(0, s) + text + fb.value.slice(e);
     fb.selectionStart = fb.selectionEnd = s + text.length;
     fb.dispatchEvent(new Event("input"));
+  }
+
+  function insertIndentInTextarea() {
+    if (!fb) return;
+    if (options.insertSpaces === false) { insertInTextarea("\t"); return; }
+    var before = fb.value.slice(0, fb.selectionStart);
+    var column = before.length - before.lastIndexOf("\n");
+    var width = Math.max(1, options.tabSize || 4);
+    insertInTextarea(new Array(width - (column % width) + 1).join(" "));
   }
 
   /* ---------------- Documentos ---------------- */
@@ -972,7 +995,7 @@
   }
   function pressTab() {
     if (mode === "monaco" && editor && editor.getModel()) { editor.focus(); editor.trigger("keyboard", "tab", null); }
-    else if (mode === "fallback" && fb) { insertInTextarea("  "); }
+    else if (mode === "fallback" && fb) { insertIndentInTextarea(); }
   }
   function undo() { if (mode === "monaco" && editor) { editor.focus(); editor.trigger("keyboard", "undo", null); } }
   function redo() { if (mode === "monaco" && editor) { editor.focus(); editor.trigger("keyboard", "redo", null); } }
@@ -993,6 +1016,49 @@
     return false;
   }
 
+  function formatDocument(path) {
+    var operation = formatQueue.then(function () { return formatDocumentNow(path); });
+    formatQueue = operation.catch(function () { return false; });
+    return operation;
+  }
+
+  function formatDocumentNow(path) {
+    if (mode !== "monaco") return Promise.resolve(false);
+    var ed = monacoEditor();
+    if (!ed || typeof ed.getAction !== "function") return Promise.resolve(false);
+    var target = path ? models[path] : editorModel(ed);
+    if (!target) return Promise.resolve(false);
+    var previous = editorModel(ed);
+    var switched = previous !== target;
+    var previousState = null;
+    if (switched) {
+      try { previousState = ed.saveViewState(); } catch (e) {}
+      ed.setModel(target);
+    }
+    var formatting = ed.getAction("editor.action.formatDocument");
+    if (!formatting || typeof formatting.run !== "function") {
+      if (switched) ed.setModel(previous);
+      return Promise.resolve(false);
+    }
+    function restore() {
+      if (!switched) return;
+      ed.setModel(previous);
+      if (previousState) { try { ed.restoreViewState(previousState); } catch (e) {} }
+    }
+    try {
+      return Promise.resolve(formatting.run()).then(function () {
+        restore();
+        return true;
+      }, function (e) {
+        restore();
+        throw e;
+      });
+    } catch (e) {
+      restore();
+      return Promise.reject(e);
+    }
+  }
+
   function getCursor() {
     if (mode === "monaco" && editor && editor.getModel()) {
       var pos = editor.getPosition();
@@ -1011,12 +1077,16 @@
       editor.updateOptions({
         fontSize: options.fontSize,
         wordWrap: options.wordWrap ? "on" : "off",
-        minimap: { enabled: !!options.minimap },
+        minimap: { enabled: !!options.minimap, side: options.minimapSide === "left" ? "left" : "right" },
         tabSize: options.tabSize || 4,
-        insertSpaces: options.insertSpaces !== false
+        insertSpaces: options.insertSpaces !== false,
+        renderWhitespace: options.renderWhitespace || "selection",
+        smoothScrolling: options.smoothScrolling !== false,
+        cursorBlinking: options.cursorBlink === false ? "solid" : "blink"
       });
     } else if (mode === "fallback" && fb) {
       fb.style.fontSize = options.fontSize + "px";
+      fb.style.tabSize = String(options.tabSize || 4);
       fb.wrap = options.wordWrap ? "soft" : "off";
     }
   }
@@ -1031,6 +1101,6 @@
     addCursorAbove: addCursorAbove, addCursorBelow: addCursorBelow,
     selectNextOccurrence: selectNextOccurrence, selectAllOccurrences: selectAllOccurrences,
     goToMatchingBracket: goToMatchingBracket, matchBracket: goToMatchingBracket,
-    action: action, applyOptions: applyOptions
+    action: action, formatDocument: formatDocument, applyOptions: applyOptions
   };
 })();

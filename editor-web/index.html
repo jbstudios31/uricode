@@ -153,78 +153,62 @@
       </section>
 
       <section class="view" id="view-git">
-        <div class="view-title"><span>CONTROL DE VERSIONES</span></div>
-        <div class="scroll" style="padding:10px; display:flex; flex-direction:column; gap:8px;">
-          <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            <button id="gitStatus" class="btn btn-primary btn-sm">Estado</button>
-            <button id="gitLog" class="btn btn-ghost btn-sm">Log</button>
-            <button id="gitDiff" class="btn btn-ghost btn-sm">Diff</button>
-            <button id="gitDiffFile" class="btn btn-ghost btn-sm">Diff archivo</button>
-            <button id="gitPull" class="btn btn-ghost btn-sm">Pull</button>
-            <button id="gitPush" class="btn btn-ghost btn-sm">Push</button>
-          </div>
-          <pre id="gitOut" class="scroll" style="background:#1e1e1e; color:#d4d4d4; padding:8px; font-family:var(--font-mono); font-size:12px; white-space:pre-wrap; margin:0; min-height:120px;"></pre>
-          <div style="display:flex; gap:6px;">
-            <input id="gitMsg" placeholder="Mensaje de commit" class="input" style="flex:1;">
+        <div class="view-title">
+          <span>CONTROL DE VERSIONES</span>
+          <span class="title-actions"><button id="gitRefresh" title="Actualizar control de versiones"><span data-icon="refresh" data-size="16"></span></button></span>
+        </div>
+        <div class="git-toolbar">
+          <button id="gitStatus" class="btn btn-primary btn-sm">Estado</button>
+          <button id="gitLog" class="btn btn-ghost btn-sm">Log</button>
+          <button id="gitDiff" class="btn btn-ghost btn-sm">Diff</button>
+          <button id="gitDiffFile" class="btn btn-ghost btn-sm">Diff archivo</button>
+          <button id="gitPull" class="btn btn-ghost btn-sm">Pull</button>
+          <button id="gitPush" class="btn btn-ghost btn-sm">Push</button>
+        </div>
+        <div class="git-branch-bar">
+          <span class="git-branch-icon" data-icon="git-branch" data-size="16"></span>
+          <span id="gitBranch" class="git-branch-name">Sin rama</span>
+          <button id="gitBranchSwitch" class="btn btn-ghost btn-sm">Cambiar rama</button>
+          <button id="gitBranchList" class="btn btn-ghost btn-sm">Ramas</button>
+        </div>
+        <div class="git-files scroll">
+          <section class="git-section">
+            <div class="git-section-title"><span>Cambios</span><span id="gitChangesCount" class="view-count">0</span></div>
+            <div id="gitChangesList" class="git-file-list"></div>
+          </section>
+          <section class="git-section">
+            <div class="git-section-title"><span>Cambios preparados</span><span id="gitStagedCount" class="view-count">0</span></div>
+            <div id="gitStagedList" class="git-file-list"></div>
+          </section>
+        </div>
+        <div class="git-compose">
+          <input id="gitMsg" placeholder="Mensaje de commit" class="input" autocomplete="off" spellcheck="false">
+          <div class="git-compose-actions">
             <button id="gitCommit" class="btn btn-primary btn-sm">Commit</button>
+            <button id="gitSync" class="btn btn-ghost btn-sm">Sync</button>
           </div>
         </div>
+        <pre id="gitOut" class="git-output scroll"></pre>
       </section>
 
       <section class="view" id="view-settings">
         <div class="view-title"><span>AJUSTES</span></div>
-        <div class="scroll settings">
-          <div class="set-group">Editor</div>
-          <div class="set-row">
-            <span>Tamaño de fuente</span>
-            <span class="stepper"><button id="fontMinus">−</button><span id="fontVal">14</span><button id="fontPlus">+</button></span>
+        <div class="settings-toolbar">
+          <div class="input-wrap settings-search-wrap">
+            <input id="setSearch" placeholder="Buscar ajustes" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Buscar ajustes">
           </div>
-          <label class="set-check"><input type="checkbox" id="setWrap"> Ajuste de línea</label>
-          <label class="set-check"><input type="checkbox" id="setMinimap"> Mostrar minimapa</label>
-          <label class="set-check"><input type="checkbox" id="setAutosave"> Guardado automático</label>
-          <div class="set-row">
-            <label>Tema</label>
-            <select id="setTheme" class="input">
-              <option value="dark">Oscuro (Dark+)</option>
-              <option value="light">Claro (Light+)</option>
-            </select>
-          </div>
-
-          <div class="set-group">Snippets (JSON: {"trigger":"code"})</div>
-          <label class="set-field">Snippets
-            <textarea id="setSnippets" rows="4" class="input mono" style="font-size:12px;" placeholder='{"log":"console.log($1);"}'></textarea>
-          </label>
-
-          <div class="set-group">Chat IA (NVIDIA NIM)</div>
-          <label class="set-field">API Key
-            <input type="password" id="setKey" placeholder="nvapi-…" autocomplete="off" autocapitalize="off" spellcheck="false">
-          </label>
-          <label class="set-field">Modelo
-            <input type="text" id="setModel" list="modelList" autocomplete="off" autocapitalize="off" spellcheck="false">
-          </label>
-          <datalist id="modelList">
-            <option value="meta/llama-3.1-8b-instruct">
-            <option value="meta/llama-3.1-70b-instruct">
-            <option value="meta/llama-3.3-70b-instruct">
-            <option value="qwen/qwen2.5-coder-32b-instruct">
-          </datalist>
-          <div class="set-note">La clave se guarda solo en este dispositivo.</div>
-
-          <div class="set-group">Actualizaciones</div>
-          <div class="set-row">
-            <span>Versión actual: <b id="verCurrent">3.0.0</b></span>
-            <button id="checkUpdate" class="btn btn-primary btn-sm">Buscar actualizaciones</button>
-          </div>
-          <div id="updateStatus" class="set-note"></div>
-
-          <div class="set-group">Diagnóstico</div>
-          <div class="set-row">
-            <button id="testAi" class="btn btn-ghost btn-sm">Probar conexión IA</button>
-            <span id="testAiStatus" class="set-note"></span>
-          </div>
-
-          <div class="set-group">Acerca de</div>
-          <div class="set-note">Uri Code 2.0.0<br>Editor Monaco · Proyectos en el almacenamiento interno de la app.</div>
+        </div>
+        <div class="settings-layout">
+          <nav id="settingsCategories" class="settings-categories" aria-label="Categorías de ajustes"></nav>
+          <div id="settingsContent" class="settings-content scroll"></div>
+        </div>
+        <div class="settings-compat-controls" hidden>
+          <select id="setTheme"><option value="dark">Oscuro (Dark+)</option><option value="light">Claro (Light+)</option></select>
+          <span id="verCurrent">3.0.0</span>
+          <button id="checkUpdate">Buscar actualizaciones</button>
+          <span id="updateStatus"></span>
+          <button id="testAi">Probar conexión IA</button>
+          <span id="testAiStatus"></span>
         </div>
       </section>
 

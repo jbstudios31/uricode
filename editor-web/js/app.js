@@ -15,6 +15,126 @@
   function join(dir, name) { return dir ? dir + "/" + name : name; }
   function tick() { return new Promise(function (r) { setTimeout(r, 0); }); }
 
+  function gitStatusKind(status) {
+    status = String(status || "").toUpperCase();
+    if (status === "A") return "added";
+    if (status === "D") return "deleted";
+    if (status === "?") return "untracked";
+    return "modified";
+  }
+
+  function decodeGitPath(path) {
+    path = String(path || "");
+    if (path.length < 2 || path.charAt(0) !== '"' || path.charAt(path.length - 1) !== '"') return path;
+    var body = path.slice(1, -1), bytes = [], i = 0;
+    var escapes = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92 };
+    while (i < body.length) {
+      var ch = body.charAt(i);
+      if (ch !== "\\") {
+        var code = body.charCodeAt(i++);
+        if (code < 128) bytes.push(code);
+        else if (code < 2048) {
+          bytes.push(192 | (code >> 6), 128 | (code & 63));
+        } else {
+          bytes.push(224 | (code >> 12), 128 | ((code >> 6) & 63), 128 | (code & 63));
+        }
+        continue;
+      }
+      i++;
+      var esc = body.charAt(i++);
+      if (esc >= "0" && esc <= "7") {
+        var octal = esc;
+        while (octal.length < 3 && body.charAt(i) >= "0" && body.charAt(i) <= "7") octal += body.charAt(i++);
+        bytes.push(parseInt(octal, 8));
+      } else {
+        bytes.push(escapes[esc] != null ? escapes[esc] : esc.charCodeAt(0));
+      }
+    }
+    try {
+      var encoded = bytes.map(function (b) { return "%" + ("0" + b.toString(16)).slice(-2); }).join("");
+      return decodeURIComponent(encoded);
+    } catch (e) {
+      return path;
+    }
+  }
+
+  function splitGitRenamePath(raw) {
+    raw = String(raw || "");
+    var quoted = false;
+    for (var i = 0; i < raw.length; i++) {
+      var ch = raw.charAt(i);
+      if (quoted && ch === "\\") { i++; continue; }
+      if (ch === '"') { quoted = !quoted; continue; }
+      if (!quoted && raw.substr(i, 4) === " -> ") {
+        return {
+          oldPath: decodeGitPath(raw.slice(0, i)),
+          path: decodeGitPath(raw.slice(i + 4))
+        };
+      }
+    }
+    return { path: decodeGitPath(raw) };
+  }
+
+  function parseGitStatus(output) {
+    var entries = [];
+    String(output || "").split(/\r?\n/).forEach(function (line) {
+      if (line.length < 4 || line.charAt(2) !== " ") return;
+      var indexStatus = line.charAt(0), worktreeStatus = line.charAt(1);
+      if (indexStatus === "!" && worktreeStatus === "!") return;
+      var split = splitGitRenamePath(line.slice(3));
+      if (!split.path) return;
+      if (indexStatus === "?" && worktreeStatus === "?") {
+        entries.push({
+          path: split.path,
+          status: "?",
+          staged: false,
+          kind: "untracked",
+          statusCode: "??",
+          indexStatus: "?",
+          worktreeStatus: "?"
+        });
+        return;
+      }
+      if (indexStatus !== " " && indexStatus !== "?") {
+        entries.push({
+          path: split.path,
+          status: indexStatus,
+          staged: true,
+          kind: gitStatusKind(indexStatus),
+          statusCode: indexStatus + worktreeStatus,
+          indexStatus: indexStatus,
+          worktreeStatus: worktreeStatus
+        });
+      }
+      if (worktreeStatus !== " " && worktreeStatus !== "?") {
+        entries.push({
+          path: split.path,
+          status: worktreeStatus,
+          staged: false,
+          kind: gitStatusKind(worktreeStatus),
+          statusCode: indexStatus + worktreeStatus,
+          indexStatus: indexStatus,
+          worktreeStatus: worktreeStatus
+        });
+      }
+    });
+    return entries;
+  }
+
+  function parseGitBranches(output) {
+    var branches = [];
+    String(output || "").split(/\r?\n/).forEach(function (line) {
+      var name = line.trim();
+      if (!name) return;
+      if (name.charAt(0) === "*" || name.charAt(0) === "+") name = name.slice(1).trim();
+      if (!name || name.indexOf("HEAD detached") >= 0) return;
+      var arrow = name.indexOf(" -> ");
+      if (arrow >= 0) name = name.slice(0, arrow);
+      if (branches.indexOf(name) < 0) branches.push(name);
+    });
+    return branches;
+  }
+
   /* ================= Lenguajes ================= */
   var EXT_LANG = {
     js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "javascript",
@@ -43,12 +163,60 @@
   }
 
   /* ================= Estado ================= */
-  var DEFAULTS = { fontSize: 14, wordWrap: true, minimap: null, autoSave: true, nimKey: "", nimModel: "meta/llama-3.1-8b-instruct", snippets: "", theme: "dark", tabSize: 4 };
+  var SETTINGS = [
+    { id: "fontSize", label: "Tamaño de fuente", type: "number", default: 14, min: 8, max: 32, category: "general", description: "Tamaño del texto del editor en píxeles." },
+    { id: "wordWrap", label: "Ajuste de línea", type: "checkbox", default: true, category: "general", description: "Ajusta automáticamente las líneas largas al ancho del editor." },
+    { id: "minimap", label: "Mostrar minimapa", type: "checkbox", default: null, category: "general", description: "Muestra una vista general del documento junto al editor." },
+    { id: "minimapSide", label: "Posición del minimapa", type: "select", default: "right", category: "general", description: "Elige si el minimapa aparece a la izquierda o a la derecha.", options: [
+      { value: "right", label: "Derecha" }, { value: "left", label: "Izquierda" }
+    ] },
+    { id: "autoSave", label: "Guardado automático", type: "checkbox", default: true, category: "general", description: "Guarda los cambios automáticamente después de unos segundos." },
+    { id: "theme", label: "Tema", type: "select", default: "dark", domId: "setTheme", category: "general", description: "Selecciona el tema oscuro o claro de Uri Code.", options: [
+      { value: "dark", label: "Oscuro (Dark+)" }, { value: "light", label: "Claro (Light+)" }
+    ] },
+    { id: "tabSize", label: "Tamaño de tabulación", type: "number", default: 4, min: 1, max: 16, category: "editor", description: "Número de espacios que forman una tabulación." },
+    { id: "insertSpaces", label: "Insertar espacios", type: "checkbox", default: true, category: "editor", description: "Usa espacios en lugar del carácter de tabulación al indentar." },
+    { id: "renderWhitespace", label: "Mostrar espacios en blanco", type: "select", default: "selection", category: "editor", description: "Controla cuándo Monaco dibuja espacios, tabulaciones y saltos de línea.", options: [
+      { value: "selection", label: "Solo selección" }, { value: "all", label: "Todo" }, { value: "none", label: "Ninguno" }
+    ] },
+    { id: "formatOnSave", label: "Formatear al guardar", type: "checkbox", default: false, category: "editor", description: "Ejecuta Prettier antes de escribir un archivo en el disco." },
+    { id: "cursorBlink", label: "Cursor parpadeante", type: "checkbox", default: true, category: "editor", description: "Permite que el cursor parpadee mientras el editor está inactivo." },
+    { id: "smoothScrolling", label: "Desplazamiento suave", type: "checkbox", default: true, category: "editor", description: "Suaviza el desplazamiento vertical del editor." },
+    { id: "snippets", label: "Snippets", type: "textarea", default: "", domId: "setSnippets", category: "editor", description: "Snippets JSON. Usa $1 y ${1:valor} para definir posiciones de tabulación." },
+    { id: "nimKey", label: "API Key", type: "text", default: "", domId: "setKey", secret: true, category: "chat", description: "Clave de NVIDIA NIM. Se guarda únicamente en este dispositivo." },
+    { id: "nimModel", label: "Modelo", type: "text", default: "meta/llama-3.1-8b-instruct", domId: "setModel", category: "chat", description: "Modelo de NVIDIA NIM utilizado por el chat IA." },
+    { id: "extensionsEnabled", label: "Habilitar extensiones", type: "checkbox", default: true, category: "extensions", description: "Activa las extensiones instaladas y sus comandos." },
+    { id: "diagnosticsEnabled", label: "Mostrar diagnósticos", type: "checkbox", default: true, category: "diagnostic", description: "Muestra errores y avisos en la vista Problemas." }
+  ];
+  var CATEGORIES = [
+    { id: "general", label: "General" },
+    { id: "editor", label: "Editor" },
+    { id: "chat", label: "Chat IA" },
+    { id: "extensions", label: "Extensiones" },
+    { id: "diagnostic", label: "Diagnóstico" }
+  ];
+  var DEFAULTS = SETTINGS.reduce(function (values, setting) {
+    values[setting.id] = setting.default;
+    return values;
+  }, {});
+  var DEFAULT_KEYBINDINGS = [
+    { command: "file.goToFile", label: "Ir a archivo", key: "Ctrl+P", aliases: ["file.quickOpen"] },
+    { command: "workbench.showCommands", label: "Paleta de comandos", key: "Ctrl+Shift+P", aliases: ["workbench.action.showCommands"] },
+    { command: "file.save", label: "Guardar", key: "Ctrl+S", aliases: ["workbench.action.files.save"] },
+    { command: "editor.find", label: "Buscar en el editor", key: "Ctrl+F", aliases: ["actions.find", "editor.action.find"] },
+    { command: "editor.gotoLine", label: "Ir a línea", key: "Ctrl+G", aliases: ["editor.action.gotoLine"] },
+    { command: "workbench.toggleSidebar", label: "Alternar barra lateral", key: "Ctrl+B", aliases: ["workbench.action.toggleSidebar"] },
+    { command: "terminal.focus", label: "Mostrar terminal", key: "Ctrl+`", aliases: ["workbench.action.terminal.focus"] }
+  ];
   var APP_VERSION = "3.0.0";
   var UPDATE_REPO = "jbstudios31/uricode";
 
   var S = {
     settings: Object.assign({}, DEFAULTS),
+    keybindingOverrides: {},
+    registeredKeybindings: [],
+    settingsCategory: "general",
+    settingsQuery: "",
     tabs: [],             // {path, lang, savedVersion, dirty}
     active: -1,
     expanded: {},         // ruta -> true
@@ -63,7 +231,8 @@
     roots: [],            // carpetas raíz del workspace (rutas relativas al sandbox)
     rootsLoaded: false,
     problemMarkers: [],
-    outputLines: []
+    outputLines: [],
+    terminalFocusHandler: null
   };
 
   /* ---------- Workspace multi-raíz ---------- */
@@ -126,6 +295,95 @@
   }
   function saveSettings() {
     try { localStorage.setItem("uri.settings", JSON.stringify(S.settings)); } catch (e) {}
+  }
+  function keybindingDefinition(command) {
+    var name = String(command || "");
+    return DEFAULT_KEYBINDINGS.find(function (binding) {
+      return binding.command === name || binding.aliases.indexOf(name) >= 0;
+    }) || null;
+  }
+  function normalizeKey(value) {
+    var parts = String(value == null ? "" : value).trim().split("+").map(function (part) { return part.trim(); }).filter(Boolean);
+    if (!parts.length) return "";
+    var key = parts.pop();
+    var modifiers = { ctrl: "Ctrl", control: "Ctrl", cmd: "Ctrl", meta: "Ctrl", shift: "Shift", alt: "Alt", option: "Alt" };
+    var found = { Ctrl: false, Shift: false, Alt: false };
+    parts.forEach(function (part) {
+      var modifier = modifiers[part.toLowerCase()];
+      if (modifier) found[modifier] = true;
+      else key = part;
+    });
+    if (key.length === 1) key = key.toUpperCase();
+    var result = [];
+    if (found.Ctrl) result.push("Ctrl");
+    if (found.Shift) result.push("Shift");
+    if (found.Alt) result.push("Alt");
+    result.push(key);
+    return result.join("+");
+  }
+  function loadKeybindings() {
+    var saved = [];
+    try { saved = JSON.parse(localStorage.getItem("uri.keybindings")) || []; } catch (e) {}
+    if (!Array.isArray(saved)) saved = [];
+    S.keybindingOverrides = {};
+    saved.forEach(function (entry) {
+      if (!entry || typeof entry.command !== "string") return;
+      var definition = keybindingDefinition(entry.command);
+      if (!definition || typeof entry.key !== "string" || !entry.key.trim()) return;
+      S.keybindingOverrides[definition.command] = normalizeKey(entry.key);
+    });
+    registerKeybindings();
+    try {
+      if (localStorage.getItem("uri.keybindings") === null) localStorage.setItem("uri.keybindings", "[]");
+    } catch (e) {}
+  }
+  function registerKeybindings() {
+    S.registeredKeybindings = DEFAULT_KEYBINDINGS.map(function (binding) {
+      return {
+        command: binding.command,
+        label: binding.label,
+        key: S.keybindingOverrides[binding.command] || binding.key,
+        defaultKey: binding.key
+      };
+    });
+    if (typeof COMMANDS !== "undefined") {
+      var hints = {
+        "Archivo: Guardar": "file.save",
+        "Ir a archivo…": "file.goToFile",
+        "Ver: Alternar barra lateral": "workbench.toggleSidebar",
+        "Editor: Buscar": "editor.find",
+        "Editor: Ir a línea…": "editor.gotoLine"
+      };
+      Object.keys(hints).forEach(function (label) {
+        var command = COMMANDS.find(function (entry) { return entry.label === label; });
+        if (command) command.key = keyHint(hints[label]);
+      });
+    }
+  }
+  function keyHint(command) {
+    var binding = S.registeredKeybindings.find(function (entry) { return entry.command === command; });
+    return binding ? binding.key : "";
+  }
+  function saveKeybindings() {
+    var saved = Object.keys(S.keybindingOverrides).map(function (command) {
+      return { command: command, key: S.keybindingOverrides[command] };
+    });
+    try { localStorage.setItem("uri.keybindings", JSON.stringify(saved)); } catch (e) {}
+    registerKeybindings();
+  }
+  function setKeybinding(command, key) {
+    var definition = keybindingDefinition(command);
+    if (!definition) return false;
+    var normalized = normalizeKey(key);
+    if (!normalized) delete S.keybindingOverrides[definition.command];
+    else S.keybindingOverrides[definition.command] = normalized;
+    saveKeybindings();
+    return true;
+  }
+  function resetKeybindings() {
+    S.keybindingOverrides = {};
+    try { localStorage.setItem("uri.keybindings", "[]"); } catch (e) {}
+    registerKeybindings();
   }
 
   /* ================= Avisos, diálogos y menús ================= */
@@ -266,13 +524,17 @@
   function setView(name, focusInput) {
     if (name === "problems") refreshProblems();
     if (name === "output") renderOutput();
+    if (name === "git") refreshGit();
     if (S.view === name && sidebarVisible() && !focusInput) { showSidebar(false); return; }
     S.view = name;
     document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("active", v.id === "view-" + name); });
     showSidebar(true);
     if (name === "search") setTimeout(function () { $("searchInput").focus(); $("searchInput").select(); }, 50);
     if (name === "ai" && !isCoarse()) setTimeout(function () { Chat.focus(); }, 50);
-    if (name === "settings") refreshSettingsUI();
+    if (name === "settings") {
+      refreshSettingsUI();
+      if (focusInput) setTimeout(function () { $("setSearch").focus(); }, 50);
+    }
   }
   function closeSidebarIfNarrow() { if (isNarrow()) showSidebar(false); }
 
@@ -729,9 +991,18 @@
 
   function saveTab(t) {
     if (!t) return Promise.resolve(true);
-    var ver = UriEditor.getVersion(t.path);
-    var text = UriEditor.getValue(t.path);
-    return API.writeFile(t.path, text).then(function (ok) {
+    var format = S.settings.formatOnSave && typeof UriEditor.formatDocument === "function"
+      ? Promise.resolve().then(function () { return UriEditor.formatDocument(t.path); }).catch(function (e) {
+        log("Format failed for " + t.path + ": " + String(e && e.message || e), "error");
+        return false;
+      })
+      : Promise.resolve(false);
+    var ver;
+    return format.then(function () {
+      ver = UriEditor.getVersion(t.path);
+      var text = UriEditor.getValue(t.path);
+      return API.writeFile(t.path, text);
+    }).then(function (ok) {
       if (!ok) { toast("Error al guardar " + t.path, "error"); return false; }
       t.savedVersion = ver;
       var nd = isDirty(t);
@@ -1406,7 +1677,7 @@
         { label: "Importar archivos…", run: importFiles },
         { label: "Compartir archivo actual", disabled: !has, run: shareCurrent },
         { separator: true },
-        { label: "Guardar", hint: "Ctrl+S", disabled: !has, run: saveCurrent },
+        { label: "Guardar", hint: keyHint("file.save"), disabled: !has, run: saveCurrent },
         { label: "Guardar todo", disabled: !has, run: function () { saveAll(false); } },
         { label: "Cerrar editor", hint: "Ctrl+W", disabled: !has, run: function () { if (S.active >= 0) closeTab(S.active); } },
         { label: "Cerrar todos los editores", disabled: !has, run: closeAllTabs }
@@ -1421,7 +1692,7 @@
         { label: "Editor: Seleccionar todas las apariciones", hint: "Ctrl+Shift+L", disabled: !has, run: act("editor.action.selectAllOccurrences") },
         { label: "Ir a llave correspondiente", hint: "Ctrl+]", disabled: !has, run: act("editor.action.bracketMatch") },
         { separator: true },
-        { label: "Buscar", hint: "Ctrl+F", disabled: !has, run: act("actions.find") },
+        { label: "Buscar", hint: keyHint("editor.find"), disabled: !has, run: act("actions.find") },
         { label: "Reemplazar", hint: "Ctrl+H", disabled: !has, run: act("editor.action.startFindReplace") },
         { label: "Buscar en archivos", hint: "Ctrl+Shift+F", run: function () { setView("search", true); } },
         { separator: true },
@@ -1431,22 +1702,22 @@
         { label: "Insertar snippet…", disabled: !has, run: insertSnippet }
       ],
       view: [
-        { label: "Paleta de comandos…", hint: "Ctrl+Shift+P", run: function () { openPalette(">"); } },
+        { label: "Paleta de comandos…", hint: keyHint("workbench.showCommands"), run: function () { openPalette(">"); } },
         { separator: true },
         { label: "Explorador", hint: "Ctrl+Shift+E", run: function () { setView("explorer", true); } },
         { label: "Buscar", run: function () { setView("search", true); } },
         { label: "Chat IA", run: function () { setView("ai", true); } },
         { label: "Ajustes", hint: "Ctrl+,", run: function () { setView("settings", true); } },
         { separator: true },
-        { label: "Alternar barra lateral", hint: "Ctrl+B", run: function () { showSidebar(!sidebarVisible()); } },
+        { label: "Alternar barra lateral", hint: keyHint("workbench.toggleSidebar"), run: function () { showSidebar(!sidebarVisible()); } },
         { label: (S.settings.wordWrap ? "✓ " : "") + "Ajuste de línea", run: function () { S.settings.wordWrap = !S.settings.wordWrap; saveSettings(); applySettings(); } },
         { label: (S.settings.minimap ? "✓ " : "") + "Minimapa", run: function () { S.settings.minimap = !S.settings.minimap; saveSettings(); applySettings(); } },
         { label: "Aumentar fuente", run: function () { changeFont(1); } },
         { label: "Reducir fuente", run: function () { changeFont(-1); } }
       ],
       go: [
-        { label: "Ir a archivo…", hint: "Ctrl+P", run: function () { openPalette(""); } },
-        { label: "Ir a línea…", hint: "Ctrl+G", disabled: !has, run: function () { openPalette(":"); } },
+        { label: "Ir a archivo…", hint: keyHint("file.goToFile"), run: function () { openPalette(""); } },
+        { label: "Ir a línea…", hint: keyHint("editor.gotoLine"), disabled: !has, run: function () { openPalette(":"); } },
         { separator: true },
         { label: "Editor siguiente", hint: "Ctrl+PgDn", disabled: S.tabs.length < 2, run: function () { cycleTab(1); } },
         { label: "Editor anterior", hint: "Ctrl+PgUp", disabled: S.tabs.length < 2, run: function () { cycleTab(-1); } }
@@ -1461,9 +1732,10 @@
   }
 
   function showShortcuts() {
-    var lines = ["Ir a archivo\t\tCtrl+P", "Paleta de comandos\tCtrl+Shift+P", "Guardar\t\t\tCtrl+S", "Nuevo archivo\t\tCtrl+N",
-      "Cerrar editor\t\tCtrl+W", "Barra lateral\t\tCtrl+B", "Buscar en archivos\tCtrl+Shift+F", "Ir a línea\t\tCtrl+G",
-      "Siguiente / anterior\tCtrl+PgDn / PgUp"];
+    var lines = S.registeredKeybindings.map(function (binding) {
+      return binding.label + "\t" + binding.key;
+    });
+    lines.push("Nuevo archivo\tCtrl+N", "Cerrar editor\tCtrl+W", "Buscar en archivos\tCtrl+Shift+F", "Siguiente / anterior\tCtrl+PgDn / PgUp");
     dialog({ title: "Atajos de teclado", message: lines.join("\n"), buttons: [{ label: "Cerrar", value: "ok", primary: true }] });
   }
 
@@ -1641,14 +1913,14 @@
   var diffEditor = null;
   function shellQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
   function openDiff(path) {
-    var dir = dirName(path);
-    API.runCommand("git rev-parse --show-toplevel", dir).then(function (r) {
+    var cwd = gitCwd();
+    API.runCommand("git rev-parse --show-toplevel", cwd).then(function (r) {
       if (r.code !== 0 || !r.stdout.trim()) { toast("No es un repositorio git", "error"); return; }
       var root = r.stdout.trim();
       var rel = path;
       if (rel.indexOf(root) === 0) rel = rel.slice(root.length).replace(/^\/+/, "");
       var current = UriEditor.getValue(path) || "";
-      API.runCommand("git show HEAD:" + shellQuote(rel), root).then(function (r2) {
+      API.runCommand("git show HEAD:" + shellQuote(rel), cwd).then(function (r2) {
         var original = (r2.code === 0) ? (r2.stdout || "") : "";
         // open modal
         $("diff-backdrop").style.display = "flex";
@@ -1700,6 +1972,7 @@
   }
 
   function collectProblemMarkers() {
+    if (!S.settings.diagnosticsEnabled) return [];
     var mon = window.monaco;
     if (!mon && typeof monaco !== "undefined") mon = monaco;
     var markers = [];
@@ -1722,7 +1995,7 @@
     if (!markers.length) {
       var empty = document.createElement("div");
       empty.className = "empty-note problems-empty";
-      empty.textContent = "No hay problemas.";
+      empty.textContent = S.settings.diagnosticsEnabled ? "No hay problemas." : "Los diagnósticos están desactivados.";
       list.appendChild(empty);
       return markers;
     }
@@ -1790,22 +2063,333 @@
     document.documentElement.setAttribute("data-theme", S.settings.theme || "dark");
     if (window.monaco && monaco.editor) { try { monaco.editor.setTheme((S.settings.theme === "light") ? "vs" : "uri-dark"); } catch (e) {} }
   }
+  function applyExtensionSetting() {
+    if (!window.UriExtensions || typeof window.UriExtensions.getContributions !== "function") return;
+    var extensions = window.UriExtensions.getContributions().extensions || [];
+    extensions.forEach(function (extension) {
+      if (S.settings.extensionsEnabled && !extension.active) window.UriExtensions.activate(extension.id);
+      else if (!S.settings.extensionsEnabled && extension.active) window.UriExtensions.deactivate(extension.id);
+    });
+  }
   function applySettings() {
-    UriEditor.applyOptions({ fontSize: S.settings.fontSize, wordWrap: S.settings.wordWrap, minimap: S.settings.minimap, tabSize: S.settings.tabSize });
+    UriEditor.applyOptions({
+      fontSize: S.settings.fontSize,
+      wordWrap: S.settings.wordWrap,
+      minimap: S.settings.minimap,
+      minimapSide: S.settings.minimapSide,
+      tabSize: S.settings.tabSize,
+      insertSpaces: S.settings.insertSpaces,
+      renderWhitespace: S.settings.renderWhitespace,
+      cursorBlink: S.settings.cursorBlink,
+      smoothScrolling: S.settings.smoothScrolling
+    });
     applyTheme();
+    applyExtensionSetting();
     refreshSettingsUI();
     Chat.refresh();
+    refreshProblems();
   }
 
+  function settingControlId(setting) {
+    if (setting.domId) return setting.domId;
+    return "set" + setting.id.charAt(0).toUpperCase() + setting.id.slice(1);
+  }
+  function filterSettings(query) {
+    var text = String(query == null ? "" : query).trim().toLowerCase();
+    if (!text) return SETTINGS.slice();
+    return SETTINGS.filter(function (setting) {
+      return (setting.id + " " + setting.label + " " + setting.description).toLowerCase().indexOf(text) >= 0;
+    });
+  }
   function refreshSettingsUI() {
-    $("fontVal").textContent = S.settings.fontSize;
-    $("setWrap").checked = !!S.settings.wordWrap;
-    $("setMinimap").checked = !!S.settings.minimap;
-    $("setAutosave").checked = !!S.settings.autoSave;
-    if (document.activeElement !== $("setKey")) $("setKey").value = S.settings.nimKey || "";
-    if (document.activeElement !== $("setModel")) $("setModel").value = S.settings.nimModel || "";
-    if (document.activeElement !== $("setSnippets")) $("setSnippets").value = S.settings.snippets || "";
-    if (document.activeElement !== $("setTheme")) $("setTheme").value = S.settings.theme || "dark";
+    SETTINGS.forEach(function (setting) {
+      var control = $(settingControlId(setting));
+      if (!control) return;
+      if (setting.type === "checkbox") control.checked = !!S.settings[setting.id];
+      else if (document.activeElement !== control) control.value = S.settings[setting.id] == null ? "" : String(S.settings[setting.id]);
+    });
+  }
+  function settingValue(setting, control) {
+    var value;
+    if (setting.type === "checkbox") value = !!control.checked;
+    else if (setting.type === "number") {
+      value = Number(control.value);
+      if (!Number.isFinite(value)) value = setting.default;
+      if (setting.min != null) value = Math.max(setting.min, value);
+      if (setting.max != null) value = Math.min(setting.max, value);
+    } else value = String(control.value == null ? "" : control.value);
+    return value;
+  }
+  function updateSetting(setting, control) {
+    if (!setting) return;
+    var value = settingValue(setting, control);
+    if (S.settings[setting.id] === value) return;
+    S.settings[setting.id] = value;
+    if (setting.id === "nimModel" && !S.settings.nimModel) S.settings.nimModel = DEFAULTS.nimModel;
+    saveSettings();
+    if (setting.id === "autoSave" && !S.settings.autoSave) {
+      clearTimeout(S.autoTimer);
+      S.autoTimer = null;
+    }
+    applySettings();
+  }
+  var domEventCounter = 0;
+  function bindDomEvent(element, name, handler) {
+    var marker = "__uriHandled" + (++domEventCounter);
+    var registry = element.__uriDomHandlers || {};
+    if (registry[name]) element.removeEventListener(name, registry[name]);
+    function run(event) {
+      if (event) {
+        if (event[marker]) return;
+        event[marker] = true;
+      }
+      handler(event);
+    }
+    element["on" + name] = run;
+    element.addEventListener(name, run);
+    registry[name] = run;
+    element.__uriDomHandlers = registry;
+  }
+  function createSettingControl(setting) {
+    var id = settingControlId(setting);
+    var control = document.getElementById(id);
+    if (!control) control = document.createElement(setting.type === "textarea" ? "textarea" : setting.type === "select" ? "select" : "input");
+    control.id = id;
+    control.className = "setting-control";
+    control.setAttribute("data-setting-id", setting.id);
+    control.setAttribute("data-setting-type", setting.type);
+    if (setting.type === "checkbox") {
+      control.type = "checkbox";
+      control.checked = !!S.settings[setting.id];
+    } else if (setting.type === "number") {
+      control.type = "number";
+      if (setting.min != null) control.min = String(setting.min);
+      if (setting.max != null) control.max = String(setting.max);
+      control.step = "1";
+      control.value = String(S.settings[setting.id]);
+    } else if (setting.type === "select") {
+      control.type = "select-one";
+      control.innerHTML = "";
+      (setting.options || []).forEach(function (option) {
+        var item = document.createElement("option");
+        item.value = option.value;
+        item.textContent = option.label;
+        control.appendChild(item);
+      });
+      control.value = String(S.settings[setting.id]);
+    } else if (setting.type === "textarea") {
+      control.rows = "5";
+      control.value = String(S.settings[setting.id] == null ? "" : S.settings[setting.id]);
+    } else {
+      control.type = setting.secret ? "password" : "text";
+      control.autocomplete = "off";
+      control.value = String(S.settings[setting.id] == null ? "" : S.settings[setting.id]);
+    }
+    function changed() { updateSetting(setting, control); }
+    if (setting.type === "text" || setting.type === "textarea") {
+      bindDomEvent(control, "input", changed);
+      bindDomEvent(control, "change", changed);
+    } else {
+      bindDomEvent(control, "change", changed);
+    }
+    return control;
+  }
+  function renderSetting(setting) {
+    var row = document.createElement("div");
+    row.className = "setting-item";
+    row.setAttribute("data-setting-id", setting.id);
+    row.setAttribute("data-category", setting.category);
+    var text = document.createElement("div");
+    text.className = "setting-copy";
+    var label = document.createElement("label");
+    label.className = "setting-label";
+    label.setAttribute("for", settingControlId(setting));
+    label.textContent = setting.label;
+    var description = document.createElement("div");
+    description.className = "setting-description";
+    description.textContent = setting.description;
+    text.appendChild(label);
+    text.appendChild(description);
+    var controlWrap = document.createElement("div");
+    controlWrap.className = "setting-value";
+    controlWrap.appendChild(createSettingControl(setting));
+    row.appendChild(text);
+    row.appendChild(controlWrap);
+    return row;
+  }
+  function renderSettingsCategories(filtered) {
+    var nav = $("settingsCategories");
+    if (!nav) return;
+    nav.innerHTML = "";
+    CATEGORIES.forEach(function (category) {
+      var button = document.createElement("button");
+      var count = filtered.filter(function (setting) { return setting.category === category.id; }).length;
+      button.className = "settings-category" + ((!S.settingsQuery && S.settingsCategory === category.id) || (S.settingsQuery && count) ? " active" : "");
+      button.setAttribute("data-category", category.id);
+      button.textContent = category.label;
+      bindDomEvent(button, "click", function () {
+        S.settingsCategory = category.id;
+        S.settingsQuery = "";
+        $("setSearch").value = "";
+        renderSettings();
+      });
+      nav.appendChild(button);
+    });
+  }
+  function renderKeybindings(section) {
+    var heading = document.createElement("div");
+    heading.className = "settings-subheading";
+    heading.textContent = "Atajos de teclado";
+    section.appendChild(heading);
+    var note = document.createElement("div");
+    note.className = "settings-note";
+    note.textContent = "Selecciona un atajo y pulsa la nueva combinación. Borra el texto para recuperar el atajo predeterminado.";
+    section.appendChild(note);
+    var reset = document.createElement("button");
+    reset.id = "resetKeybindings";
+    reset.className = "btn btn-ghost btn-sm settings-reset";
+    reset.textContent = "Restablecer atajos";
+    bindDomEvent(reset, "click", function () {
+      resetKeybindings();
+      renderSettings();
+      toast("Atajos restablecidos");
+    });
+    section.appendChild(reset);
+    var list = document.createElement("div");
+    list.className = "keybindings-list";
+    S.registeredKeybindings.forEach(function (binding, index) {
+      var row = document.createElement("div");
+      row.className = "keybinding-row";
+      row.setAttribute("data-command", binding.command);
+      var label = document.createElement("label");
+      label.className = "keybinding-label";
+      label.setAttribute("for", "setKeybinding-" + index);
+      label.textContent = binding.label;
+      var input = document.createElement("input");
+      input.id = "setKeybinding-" + index;
+      input.className = "setting-input keybinding-input";
+      input.type = "text";
+      input.value = binding.key;
+      input.setAttribute("data-command", binding.command);
+      input.setAttribute("aria-label", "Atajo para " + binding.label);
+      function capture(e) {
+        var combo = keyComboFromEvent(e);
+        if (!combo) return;
+        e.preventDefault();
+        e.stopPropagation();
+        input.value = combo;
+        setKeybinding(binding.command, combo);
+      }
+      function change() {
+        var value = String(input.value || "").trim();
+        if (!value) {
+          setKeybinding(binding.command, "");
+          input.value = binding.defaultKey;
+        } else {
+          var normalized = normalizeKey(value);
+          input.value = normalized;
+          setKeybinding(binding.command, normalized);
+        }
+      }
+      bindDomEvent(input, "keydown", capture);
+      bindDomEvent(input, "change", change);
+      row.appendChild(label);
+      row.appendChild(input);
+      list.appendChild(row);
+    });
+    section.appendChild(list);
+  }
+  function reusableControl(id, tag) {
+    var control = document.getElementById(id);
+    if (!control) control = document.createElement(tag);
+    control.id = id;
+    control.hidden = false;
+    control.removeAttribute("hidden");
+    return control;
+  }
+  function testAiConnection() {
+    var status = $("testAiStatus");
+    if (!S.settings.nimKey) { toast("Falta API Key", "error"); return; }
+    status.textContent = "Probando…";
+    window.API.httpPost("https://integrate.api.nvidia.com/v1/chat/completions", {
+      "Authorization": "Bearer " + S.settings.nimKey,
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    }, { model: S.settings.nimModel, messages: [{ role: "user", content: "Di hola" }], temperature: 0.3, max_tokens: 32, stream: false })
+      .then(function (r) {
+        status.textContent = "HTTP " + r.status + (r.status >= 200 && r.status < 300 ? " OK" : " " + String(r.text).slice(0, 120));
+      }).catch(function (e) {
+        status.textContent = "Error: " + String(e && e.message || e);
+      });
+  }
+  function renderDiagnosticActions(section) {
+    var heading = document.createElement("div");
+    heading.className = "settings-subheading";
+    heading.textContent = "Estado y pruebas";
+    section.appendChild(heading);
+    var versionRow = document.createElement("div");
+    versionRow.className = "settings-action-row";
+    var versionLabel = document.createElement("span");
+    versionLabel.textContent = "Versión actual: ";
+    var version = reusableControl("verCurrent", "span");
+    version.className = "settings-version";
+    version.textContent = APP_VERSION;
+    versionLabel.appendChild(version);
+    var update = reusableControl("checkUpdate", "button");
+    update.className = "btn btn-primary btn-sm";
+    update.textContent = "Buscar actualizaciones";
+    bindDomEvent(update, "click", function () { checkUpdate(true); });
+    versionRow.appendChild(versionLabel);
+    versionRow.appendChild(update);
+    section.appendChild(versionRow);
+    var updateStatus = reusableControl("updateStatus", "span");
+    updateStatus.className = "settings-note";
+    section.appendChild(updateStatus);
+    var aiRow = document.createElement("div");
+    aiRow.className = "settings-action-row";
+    var aiButton = reusableControl("testAi", "button");
+    aiButton.className = "btn btn-ghost btn-sm";
+    aiButton.textContent = "Probar conexión IA";
+    bindDomEvent(aiButton, "click", testAiConnection);
+    var aiStatus = reusableControl("testAiStatus", "span");
+    aiStatus.className = "settings-note";
+    aiRow.appendChild(aiButton);
+    aiRow.appendChild(aiStatus);
+    section.appendChild(aiRow);
+    var about = document.createElement("div");
+    about.className = "settings-note";
+    about.textContent = "Uri Code · Editor Monaco · Proyectos en el almacenamiento interno de la app.";
+    section.appendChild(about);
+  }
+  function renderSettings() {
+    var content = $("settingsContent");
+    if (!content) return;
+    var filtered = filterSettings(S.settingsQuery);
+    content.innerHTML = "";
+    if (!filtered.length) {
+      var empty = document.createElement("div");
+      empty.className = "settings-empty";
+      empty.textContent = "No hay ajustes que coincidan con la búsqueda.";
+      content.appendChild(empty);
+      renderSettingsCategories(filtered);
+      return;
+    }
+    CATEGORIES.forEach(function (category) {
+      var definitions = filtered.filter(function (setting) { return setting.category === category.id; });
+      if (S.settingsQuery && !definitions.length) return;
+      var section = document.createElement("section");
+      section.className = "settings-section" + ((!S.settingsQuery && S.settingsCategory === category.id) || S.settingsQuery ? " active" : "");
+      section.setAttribute("data-category", category.id);
+      var title = document.createElement("h2");
+      title.className = "settings-category-title";
+      title.textContent = category.label;
+      section.appendChild(title);
+      definitions.forEach(function (setting) { section.appendChild(renderSetting(setting)); });
+      if (category.id === "general") renderKeybindings(section);
+      if (category.id === "diagnostic") renderDiagnosticActions(section);
+      content.appendChild(section);
+    });
+    renderSettingsCategories(filtered);
   }
 
   function getSnippets() {
@@ -1814,33 +2398,13 @@
   }
 
   function bindSettings() {
-    $("fontMinus").onclick = function () { changeFont(-1); };
-    $("fontPlus").onclick = function () { changeFont(1); };
-    $("setWrap").onchange = function (e) { S.settings.wordWrap = e.target.checked; saveSettings(); applySettings(); };
-    $("setMinimap").onchange = function (e) { S.settings.minimap = e.target.checked; saveSettings(); applySettings(); };
-    $("setAutosave").onchange = function (e) { S.settings.autoSave = e.target.checked; saveSettings(); if (!S.settings.autoSave) { clearTimeout(S.autoTimer); S.autoTimer = null; } };
-    $("setKey").oninput = function (e) { S.settings.nimKey = e.target.value.trim(); saveSettings(); };
-    $("setModel").oninput = function (e) {
-      S.settings.nimModel = e.target.value.trim() || DEFAULTS.nimModel; saveSettings(); Chat.refresh();
-    };
-    $("setSnippets").oninput = function (e) { S.settings.snippets = e.target.value; saveSettings(); };
-    $("setTheme").onchange = function (e) { S.settings.theme = e.target.value; saveSettings(); applyTheme(); };
-    var cu = $("checkUpdate");
-    if (cu) cu.onclick = function () { checkUpdate(true); };
-    var ta = $("testAi");
-    if (ta) ta.onclick = function () {
-      var s = S.settings;
-      if (!s.nimKey) { toast("Falta API Key", "error"); return; }
-      $("testAiStatus").textContent = "Probando…";
-      window.API.httpPost("https://integrate.api.nvidia.com/v1/chat/completions", {
-        "Authorization": "Bearer " + s.nimKey,
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-      }, { model: s.nimModel, messages: [{ role: "user", content: "Di hola" }], temperature: 0.3, max_tokens: 32, stream: false })
-        .then(function (r) {
-          $("testAiStatus").textContent = "HTTP " + r.status + (r.status >= 200 && r.status < 300 ? " OK" : " " + String(r.text).slice(0, 120));
-        });
-    };
+    renderSettings();
+    var search = $("setSearch");
+    function filter() {
+      S.settingsQuery = String(search.value || "").trim();
+      renderSettings();
+    }
+    bindDomEvent(search, "input", filter);
   }
 
   /* ================= Barra de teclas (móvil) ================= */
@@ -1866,12 +2430,249 @@
 
   var dc = $("diffClose"); if (dc) dc.onclick = closeDiff;
   var db = $("diff-backdrop"); if (db) db.addEventListener("click", function (e) { if (e.target === db) closeDiff(); });
+
+  var gitEntries = [];
+  var gitCurrentBranch = "";
+  var gitRefreshToken = 0;
+
+  function gitCwd() {
+    var input = $("termCwd");
+    return input ? String(input.value || "").trim() : "";
+  }
+
+  function runGitCommand(cmd, cwd) {
+    return API.runCommand(String(cmd || ""), cwd == null ? gitCwd() : String(cwd || ""));
+  }
+
+  function showGit(r) {
+    var out = $("gitOut");
+    if (!out) return;
+    r = r || {};
+    out.textContent = (r.stdout || "") + (r.stderr ? "\n[stderr]\n" + r.stderr : "") || "(sin salida)";
+  }
+
+  function gitEntryRow(entry) {
+    var row = document.createElement("div");
+    row.className = "git-file-row";
+    row.setAttribute("data-git-entry", "1");
+    row.setAttribute("data-path", entry.path);
+    row.setAttribute("data-status", entry.status);
+    row.setAttribute("data-staged", entry.staged ? "1" : "0");
+
+    var badge = document.createElement("button");
+    badge.className = "git-status-badge git-status-" + entry.kind;
+    badge.textContent = entry.status;
+    badge.title = entry.kind;
+    badge.setAttribute("aria-label", "Estado: " + entry.status);
+    badge.addEventListener("click", function () { openGitEntry(entry); });
+
+    var name = document.createElement("button");
+    name.className = "git-file-name";
+    name.textContent = entry.path;
+    name.title = entry.path;
+    name.addEventListener("click", function () { openGitEntry(entry); });
+
+    var actions = document.createElement("span");
+    actions.className = "git-file-actions";
+
+    var stage = document.createElement("button");
+    stage.className = "git-action git-stage-toggle";
+    stage.textContent = entry.staged ? "Unstage" : "Stage";
+    stage.title = entry.staged ? "Quitar del área de preparación" : "Preparar cambios";
+    stage.setAttribute("data-action", entry.staged ? "unstage" : "stage");
+    stage.addEventListener("click", function (e) {
+      e.stopPropagation();
+      stageGitEntry(entry);
+    });
+
+    var discard = document.createElement("button");
+    discard.className = "git-action git-discard";
+    discard.textContent = "Descartar cambios";
+    discard.title = "Descartar cambios del archivo";
+    discard.setAttribute("data-action", "discard");
+    discard.addEventListener("click", function (e) {
+      e.stopPropagation();
+      discardGitEntry(entry);
+    });
+
+    actions.appendChild(stage);
+    actions.appendChild(discard);
+    row.appendChild(badge);
+    row.appendChild(name);
+    row.appendChild(actions);
+    row.addEventListener("click", function (e) {
+      if (e && e.target && typeof e.target.closest === "function" && e.target.closest(".git-action")) return;
+      openGitEntry(entry);
+    });
+    return row;
+  }
+
+  function renderGitFileList(box, entries) {
+    if (!box) return;
+    box.innerHTML = "";
+    if (!entries.length) {
+      var empty = document.createElement("div");
+      empty.className = "git-empty";
+      empty.textContent = "No hay cambios";
+      box.appendChild(empty);
+      return;
+    }
+    entries.forEach(function (entry) { box.appendChild(gitEntryRow(entry)); });
+  }
+
+  function renderGitEntries(entries) {
+    gitEntries = Array.isArray(entries) ? entries : [];
+    var staged = [], unstaged = [];
+    gitEntries.forEach(function (entry) {
+      if (entry.staged) staged.push(entry); else unstaged.push(entry);
+    });
+    renderGitFileList($("gitChangesList"), unstaged);
+    renderGitFileList($("gitStagedList"), staged);
+    var changesCount = $("gitChangesCount");
+    var stagedCount = $("gitStagedCount");
+    if (changesCount) changesCount.textContent = String(unstaged.length);
+    if (stagedCount) stagedCount.textContent = String(staged.length);
+  }
+
+  function refreshGit(showOutput) {
+    var cwd = gitCwd();
+    var token = ++gitRefreshToken;
+    if (showOutput) showGit({ stdout: "Ejecutando…" });
+    return Promise.all([
+      API.runCommand("git status --porcelain", cwd),
+      API.runCommand("git branch --show-current", cwd)
+    ]).then(function (results) {
+      if (token !== gitRefreshToken) return null;
+      var statusResult = results[0] || { code: -1, stdout: "", stderr: "Sin respuesta" };
+      var branchResult = results[1] || { code: -1, stdout: "", stderr: "Sin respuesta" };
+      if (statusResult.code === 0) {
+        renderGitEntries(parseGitStatus(statusResult.stdout));
+        if (showOutput) showGit(statusResult);
+      } else {
+        renderGitEntries([]);
+        showGit(statusResult);
+      }
+      gitCurrentBranch = branchResult.code === 0 ? String(branchResult.stdout || "").trim() : "";
+      var branch = $("gitBranch");
+      if (branch) branch.textContent = gitCurrentBranch || "Sin rama";
+      return { entries: gitEntries.slice(), branch: gitCurrentBranch };
+    }).catch(function (e) {
+      if (token !== gitRefreshToken) return null;
+      renderGitEntries([]);
+      showGit({ code: -1, stdout: "", stderr: String(e && e.message || e) });
+      return { entries: [], branch: "" };
+    });
+  }
+
+  function openGitEntry(entry) {
+    return openFile(entry.path);
+  }
+
+  function stageGitEntry(entry) {
+    var cmd = entry.staged
+      ? "git restore --staged -- " + shellQuote(entry.path)
+      : "git add -- " + shellQuote(entry.path);
+    return runGitCommand(cmd).then(function (r) {
+      showGit(r);
+      if (r.code !== 0) {
+        toast("No se pudo " + (entry.staged ? "quitar los cambios de preparación" : "preparar el archivo"), "error");
+        return r;
+      }
+      toast(entry.staged ? "Cambios quitados de preparación" : "Cambios preparados");
+      return refreshGit();
+    });
+  }
+
+  function discardGitEntry(entry) {
+    return runGitCommand("git checkout -- " + shellQuote(entry.path)).then(function (r) {
+      showGit(r);
+      if (r.code !== 0) {
+        toast("No se pudieron descartar los cambios", "error");
+        return r;
+      }
+      toast("Cambios descartados: " + baseName(entry.path));
+      return refreshGit();
+    });
+  }
+
+  function switchGitBranch() {
+    var cwd = gitCwd();
+    showGit({ stdout: "Obteniendo ramas…" });
+    return API.runCommand("git branch --all", cwd).then(function (r) {
+      showGit(r);
+      if (r.code !== 0) {
+        toast("No se pudieron obtener las ramas", "error");
+        return null;
+      }
+      var branches = parseGitBranches(r.stdout);
+      var message = branches.length
+        ? "Ramas disponibles:\n" + branches.join("\n")
+        : "No se encontraron ramas.";
+      return askText("Cambiar de rama", gitCurrentBranch, "main", message);
+    }).then(function (branchName) {
+      if (!branchName) return null;
+      return runGitCommand("git checkout " + shellQuote(branchName), cwd).then(function (r) {
+        showGit(r);
+        if (r.code !== 0) {
+          toast("No se pudo cambiar de rama", "error");
+          return r;
+        }
+        toast("Rama cambiada: " + branchName);
+        return refreshGit();
+      });
+    });
+  }
+
+  function listGitBranches() {
+    showGit({ stdout: "Ejecutando…" });
+    return runGitCommand("git branch --all").then(showGit);
+  }
+
+  function commitGit() {
+    var input = $("gitMsg");
+    var msg = input ? String(input.value || "").trim() : "";
+    if (!msg) { toast("Escribe un mensaje de commit", "error"); return Promise.resolve(null); }
+    showGit({ stdout: "Ejecutando…" });
+    return runGitCommand("git add -A && git commit -m " + shellQuote(msg)).then(function (r) {
+      showGit(r);
+      if (r.code !== 0) {
+        toast("No se pudo crear el commit", "error");
+        return r;
+      }
+      if (input) input.value = "";
+      toast("Commit realizado");
+      return refreshGit();
+    });
+  }
+
+  function syncGit() {
+    var cwd = gitCwd();
+    showGit({ stdout: "Ejecutando…" });
+    return API.runCommand("git pull", cwd).then(function (pull) {
+      showGit(pull);
+      if (pull.code !== 0) {
+        toast("No se pudo completar el pull", "error");
+        return pull;
+      }
+      return API.runCommand("git push", cwd).then(function (push) {
+        showGit(push);
+        if (push.code !== 0) {
+          toast("No se pudo completar el push", "error");
+          return push;
+        }
+        toast("Sincronización completada");
+        return refreshGit();
+      });
+    });
+  }
+
   function bindTermGit() {
     var term = null, fitAddon = null, history = [], histIdx = -1, inputBuf = "";
     if (typeof Terminal !== "undefined") {
       term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: "Consolas, 'Roboto Mono', monospace", theme: { background: "#0c0c0c", foreground: "#cccccc" } });
       if (typeof FitAddon !== "undefined") { fitAddon = new FitAddon.FitAddon(); term.loadAddon(fitAddon); }
       term.open($("termContainer"));
+      S.terminalFocusHandler = function () { if (term && typeof term.focus === "function") term.focus(); };
       if (fitAddon) try { fitAddon.fit(); } catch (e) {}
       window.addEventListener("resize", function () { if (fitAddon) try { fitAddon.fit(); } catch (e) {} });
       term.writeln("Uri Code Terminal. Escribe un comando y presiona Enter.");
@@ -1929,44 +2730,87 @@
       });
     }
 
-    function showGit(r) { $("gitOut").textContent = (r.stdout || "") + (r.stderr ? "\n[stderr]\n" + r.stderr : "") || "(sin salida)"; }
     var gitStatusBtn = $("gitStatus"); if (gitStatusBtn) gitStatusBtn.addEventListener("click", function () {
-      $("gitOut").textContent = "Ejecutando…";
-      API.runCommand("git status", ($("termCwd").value || "").trim()).then(showGit);
+      refreshGit(true);
+    });
+    var gitRefreshBtn = $("gitRefresh"); if (gitRefreshBtn) gitRefreshBtn.addEventListener("click", function () {
+      refreshGit(false);
     });
     var gitLogBtn = $("gitLog"); if (gitLogBtn) gitLogBtn.addEventListener("click", function () {
-      $("gitOut").textContent = "Ejecutando…";
-      API.runCommand("git log --oneline -20", ($("termCwd").value || "").trim()).then(showGit);
+      showGit({ stdout: "Ejecutando…" });
+      runGitCommand("git log --oneline -20").then(showGit);
     });
     var gitDiffBtn = $("gitDiff"); if (gitDiffBtn) gitDiffBtn.addEventListener("click", function () {
-      $("gitOut").textContent = "Ejecutando…";
-      API.runCommand("git diff", ($("termCwd").value || "").trim()).then(showGit);
+      showGit({ stdout: "Ejecutando…" });
+      runGitCommand("git diff").then(showGit);
     });
     var gitDiffFileBtn = $("gitDiffFile"); if (gitDiffFileBtn) gitDiffFileBtn.addEventListener("click", function () {
-      var pth = (S.activeTab && S.activeTab.path) ? S.activeTab.path : null;
+      var active = currentTab();
+      var pth = active ? active.path : null;
       if (!pth) { toast("Abre un archivo primero", "error"); return; }
       openDiff(pth);
     });
     var gitPullBtn = $("gitPull"); if (gitPullBtn) gitPullBtn.addEventListener("click", function () {
-      $("gitOut").textContent = "Ejecutando…";
-      API.runCommand("git pull", ($("termCwd").value || "").trim()).then(showGit);
+      showGit({ stdout: "Ejecutando…" });
+      runGitCommand("git pull").then(showGit);
     });
     var gitPushBtn = $("gitPush"); if (gitPushBtn) gitPushBtn.addEventListener("click", function () {
-      $("gitOut").textContent = "Ejecutando…";
-      API.runCommand("git push", ($("termCwd").value || "").trim()).then(showGit);
+      showGit({ stdout: "Ejecutando…" });
+      runGitCommand("git push").then(showGit);
     });
-    var gitCommitBtn = $("gitCommit"); if (gitCommitBtn) gitCommitBtn.addEventListener("click", function () {
-      var msg = ($("gitMsg").value || "").trim();
-      if (!msg) { toast("Escribe un mensaje de commit", "error"); return; }
-      $("gitOut").textContent = "Ejecutando…";
-      var cwd = ($("termCwd").value || "").trim();
-      API.runCommand("git add -A && git commit -m " + JSON.stringify(msg), cwd).then(function (r) { showGit(r); if (r.code === 0) toast("Commit realizado"); });
-    });
+    var gitCommitBtn = $("gitCommit"); if (gitCommitBtn) gitCommitBtn.addEventListener("click", commitGit);
+    var gitSyncBtn = $("gitSync"); if (gitSyncBtn) gitSyncBtn.addEventListener("click", syncGit);
+    var gitBranchSwitchBtn = $("gitBranchSwitch"); if (gitBranchSwitchBtn) gitBranchSwitchBtn.addEventListener("click", switchGitBranch);
+    var gitBranchListBtn = $("gitBranchList"); if (gitBranchListBtn) gitBranchListBtn.addEventListener("click", listGitBranches);
   }
 
   function updateCoarse() { document.body.classList.toggle("coarse", isCoarse() || isNarrow()); }
 
   /* ================= Atajos de teclado ================= */
+  function keyComboFromEvent(e) {
+    var key = String(e.key || "");
+    if (key === "Dead" || !key) key = String(e.code || "");
+    if (key === "ControlLeft" || key === "ControlRight" || key === "ShiftLeft" || key === "ShiftRight" ||
+        key === "AltLeft" || key === "AltRight" || key === "MetaLeft" || key === "MetaRight") return "";
+    var ctrl = !!(e.ctrlKey || e.metaKey), shift = !!e.shiftKey, alt = !!e.altKey;
+    if (!ctrl && !alt) return "";
+    if (key.length === 1) key = key.toUpperCase();
+    else if (key === "Space") key = "Space";
+    var result = [];
+    if (ctrl) result.push("Ctrl");
+    if (shift) result.push("Shift");
+    if (alt) result.push("Alt");
+    result.push(key);
+    return result.join("+");
+  }
+  function matchingKeybinding(e) {
+    var combo = keyComboFromEvent(e);
+    if (!combo) return null;
+    return S.registeredKeybindings.find(function (binding) {
+      return normalizeKey(binding.key) === combo;
+    }) || null;
+  }
+  function shadowedDefaultKeybinding(e) {
+    var combo = keyComboFromEvent(e);
+    if (!combo) return null;
+    return DEFAULT_KEYBINDINGS.find(function (definition) {
+      var current = S.registeredKeybindings.find(function (binding) { return binding.command === definition.command; });
+      return current && normalizeKey(current.key) !== normalizeKey(definition.key) && normalizeKey(definition.key) === combo;
+    }) || null;
+  }
+  function runKeybinding(binding) {
+    if (!binding) return;
+    if (binding.command === "file.goToFile") openPalette("");
+    else if (binding.command === "workbench.showCommands") openPalette(">");
+    else if (binding.command === "file.save") saveCurrent();
+    else if (binding.command === "editor.find") { if (needTab()) UriEditor.action("actions.find"); }
+    else if (binding.command === "editor.gotoLine") openPalette(":");
+    else if (binding.command === "workbench.toggleSidebar") showSidebar(!sidebarVisible());
+    else if (binding.command === "terminal.focus") {
+      setView("terminal", true);
+      if (typeof S.terminalFocusHandler === "function") S.terminalFocusHandler();
+    }
+  }
   function bindKeys() {
     window.addEventListener("keydown", function (e) {
       var ctrl = e.ctrlKey || e.metaKey, k = (e.key || "").toLowerCase();
@@ -1987,6 +2831,9 @@
         return;
       }
       if (e.key === "Escape" && document.body.classList.contains("menu-open")) { closeMenu(); return; }
+      var binding = matchingKeybinding(e);
+      if (binding) { e.preventDefault(); runKeybinding(binding); return; }
+      if (shadowedDefaultKeybinding(e)) { e.preventDefault(); return; }
       if (e.key === "F1") { e.preventDefault(); openPalette(">"); return; }
       if (ctrl && e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
         e.preventDefault();
@@ -1996,15 +2843,10 @@
       if (!ctrl) return;
       if (e.key === "PageDown") { e.preventDefault(); cycleTab(1); return; }
       if (e.key === "PageUp") { e.preventDefault(); cycleTab(-1); return; }
-      if (k === "s") { e.preventDefault(); saveCurrent(); }
-      else if (k === "p" && e.shiftKey) { e.preventDefault(); openPalette(">"); }
-      else if (k === "p") { e.preventDefault(); openPalette(""); }
-      else if (k === "b") { e.preventDefault(); showSidebar(!sidebarVisible()); }
-      else if (k === "w") { e.preventDefault(); if (S.active >= 0) closeTab(S.active); }
+      if (k === "w") { e.preventDefault(); if (S.active >= 0) closeTab(S.active); }
       else if (k === "n") { e.preventDefault(); newItem("file"); }
       else if (k === "f" && e.shiftKey) { e.preventDefault(); setView("search", true); }
       else if (k === "e" && e.shiftKey) { e.preventDefault(); setView("explorer", true); }
-      else if (k === "g" && !e.shiftKey) { e.preventDefault(); openPalette(":"); }
       else if (k === ",") { e.preventDefault(); setView("settings", true); }
     }, true);
   }
@@ -2132,7 +2974,7 @@
       window.UriExtensions.registerHost({
         toast: function (msg, kind) { toast(msg, kind); }
       });
-      var n = window.UriExtensions.loadBundled();
+      var n = S.settings.extensionsEnabled ? window.UriExtensions.loadBundled() : 0;
       log("Extensions loaded: " + n);
       if (n) toast(n + " extensión(es) cargada(s)");
     } catch (e) {
@@ -2224,6 +3066,7 @@
 
   function boot() {
     loadSettings();
+    loadKeybindings();
     bindUI();
     log("App start: Uri Code iniciado");
     bindKeys();
@@ -2297,7 +3140,15 @@
     refreshTree().catch(function (e) { toast("Error cargando proyectos: " + e, "error"); });
 
     UriEditor.init($("editor-root"), {
-      fontSize: S.settings.fontSize, wordWrap: S.settings.wordWrap, minimap: S.settings.minimap
+      fontSize: S.settings.fontSize,
+      wordWrap: S.settings.wordWrap,
+      minimap: S.settings.minimap,
+      minimapSide: S.settings.minimapSide,
+      tabSize: S.settings.tabSize,
+      insertSpaces: S.settings.insertSpaces,
+      renderWhitespace: S.settings.renderWhitespace,
+      cursorBlink: S.settings.cursorBlink,
+      smoothScrolling: S.settings.smoothScrolling
     }).then(function (mode) {
       log("Editor mode: " + (mode === "fallback" ? "fallback" : "monaco"));
       $("welcomeLoading").classList.add("hidden");
@@ -2308,13 +3159,29 @@
     });
   }
 
+  window.UriGit = {
+    parseStatus: parseGitStatus,
+    parseBranches: parseGitBranches
+  };
+
   window.UriCodePanels = {
     refreshProblems: refreshProblems,
     onMarkers: onMarkers,
     getProblems: function () { return S.problemMarkers.slice(); },
+    refreshGit: refreshGit,
+    getGitEntries: function () { return gitEntries.slice(); },
     log: log,
     showProblems: showProblems,
     setView: setView
+  };
+
+  window.UriCodeSettings = {
+    getDefinitions: function () { return SETTINGS.map(function (setting) { return Object.assign({}, setting); }); },
+    filter: filterSettings,
+    getKeybindings: function () { return S.registeredKeybindings.map(function (binding) { return Object.assign({}, binding); }); },
+    setKeybinding: setKeybinding,
+    resetKeybindings: resetKeybindings,
+    render: renderSettings
   };
 
   boot();

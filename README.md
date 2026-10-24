@@ -11,6 +11,9 @@ Editor de código para Android con el aspecto y los atajos de VS Code.
 - **Formateo** con Prettier (JS/TS, JSON, HTML, CSS, Markdown, YAML, GraphQL).
 - **Snippets** con tab-stops (`$1`, `${1:valor}`) y salto entre ellos con `Tab`.
 
+- **Ajustes** tipo VS Code: editor buscable por categorías (General, Editor, Chat IA, Extensiones, Diagnóstico) con tamaño de tabulación, espacios, espacios en blanco, formatear al guardar, cursor, scroll y minimapa.
+- **Atajos reconfigurables** (Ctrl+P, Ctrl+Shift+P, Ctrl+S, Ctrl+F, Ctrl+G, Ctrl+B, Ctrl+`) con botón «Restablecer atajos».
+
 ### Interfaz
 - Estilo VS Code: barra de actividad, explorador, pestañas, migas de pan, barra de estado, menús y paleta de comandos.
 - **Tema oscuro (Dark+) y claro (Light+)** seleccionables en Ajustes.
@@ -19,7 +22,7 @@ Editor de código para Android con el aspecto y los atajos de VS Code.
 
 ### Herramientas
 - **Terminal real** (xterm.js) con salida en streaming, historial con ↑/↓, `cd` persistente y `clear`.
-- **Control de versiones**: estado, log, diff, diff visual por archivo (Monaco Diff Editor), pull, push y commit.
+- **Control de versiones** estilo VS Code: lista de cambios con stage/unstage y descarte, rama actual con cambio/listado de ramas, commit, sincronizar (pull+push), log, diff y diff visual por archivo (Monaco Diff Editor).
 - **Búsqueda y reemplazo global** en todos los archivos, con mayúsculas y expresiones regulares.
 - **Panel PROBLEMAS** en la barra lateral (errores y avisos; al pulsar salta al archivo y la línea).
 - **Panel OUTPUT** con el registro de eventos de la app.
@@ -72,6 +75,8 @@ npm run test:runtime  # arranque de la app en un DOM simulado
 
 - **`tests/smoke.js`**: comprueba la sintaxis de todos los scripts, carga los módulos `UriExtensions`, `UriLSP` y `UriDebug`, valida el orden de carga de los scripts y los recursos de la interfaz. Además hace un análisis estático que detecta llamadas a funciones inexistentes en cada archivo.
 - **`tests/runtime.test.js`**: ejecuta la app completa en un DOM simulado (`tests/dom.js`) y comprueba que arranca sin excepciones, que el workspace multi-raíz se dibuja y que las APIs de archivos, extensiones, depuración y LSP responden.
+- **`tests/git.test.js`**: prueba el parser de `git status --porcelain` y el panel de control de versiones.
+- **`tests/settings.test.js`**: prueba el editor de ajustes buscable y los atajos reconfigurables.
 - **`tests/panels.test.js`**: prueba los paneles PROBLEMAS y OUTPUT.
 - **`tests/cursor.test.js`**: prueba el multi-cursor y la navegación de llaves con un doble de Monaco.
 - **`tests/chat.test.js`**: prueba el flujo completo del chat IA (NIM): apertura desde la barra de actividad, envío con contexto del archivo, respuesta, error HTTP y botón «Probar conexión IA».
