@@ -1418,6 +1418,51 @@
     $("diffHost").innerHTML = "";
   }
 
+  function showProblems() {
+    var markers = [];
+    try {
+      monaco.editor.getModelMarkers({}).forEach(function (m) {
+        markers.push(m);
+      });
+    } catch (e) {}
+    // filter to open tabs? show all
+    var backdrop = document.createElement("div");
+    backdrop.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:200;display:flex;align-items:stretch;justify-content:stretch;padding:24px";
+    var box = document.createElement("div");
+    box.style.cssText = "flex:1;display:flex;flex-direction:column;background:var(--bg-editor);border:1px solid var(--border-light);border-radius:4px;overflow:hidden";
+    var title = document.createElement("div");
+    title.style.cssText = "height:32px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:var(--bg-title);font-size:12px";
+    title.innerHTML = "<span>Problemas (" + markers.length + ")</span>";
+    var close = document.createElement("button");
+    close.className = "tb-btn";
+    close.textContent = "×";
+    close.onclick = function () { document.body.removeChild(backdrop); };
+    title.appendChild(close);
+    var list = document.createElement("div");
+    list.style.cssText = "flex:1;overflow:auto;padding:8px;font-family:var(--font-mono);font-size:12px";
+    if (!markers.length) {
+      list.textContent = "Sin problemas.";
+    } else {
+      markers.forEach(function (m) {
+        var row = document.createElement("div");
+        row.style.cssText = "padding:4px 6px;cursor:pointer;border-bottom:1px solid var(--border)";
+        row.textContent = (m.severity === 8 ? "Error" : "Warning") + "  " + (m.resource ? m.resource.path.split("/").pop() : "") + ":" + m.startLineNumber + "  " + m.message;
+        row.onclick = function () {
+          var r = m.resource && m.resource.path;
+          if (r) openFile(r, { line: m.startLineNumber, col: m.startColumn });
+          document.body.removeChild(backdrop);
+        };
+        list.appendChild(row);
+      });
+    }
+    box.appendChild(title);
+    box.appendChild(list);
+    backdrop.appendChild(box);
+    backdrop.addEventListener("click", function (e) { if (e.target === backdrop) document.body.removeChild(backdrop); });
+    document.body.appendChild(backdrop);
+  }
+
+
   function addResultFile(container, f, matches) {
     var head = document.createElement("div");
     head.className = "res-file";
@@ -1698,6 +1743,7 @@
     bindSash();
     $("btnPalette").onclick = function () { openPalette(">"); };
     $("sbBrand").onclick = function () { openPalette(">"); };
+    var sbe = $("sbErrors"); if (sbe) sbe.addEventListener("click", showProblems);
     $("sbPos").onclick = function () { if (currentTab()) openPalette(":"); };
     $("wNewFile").onclick = function () { newItem("file"); };
     $("wOpen").onclick = function () { openPalette(""); };
