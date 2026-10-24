@@ -42,7 +42,7 @@ UriCode/
 │   ├── extensions/         # Extensiones (ejemplo: sample.js)
 │   ├── vendor/monaco/      # Monaco offline
 │   └── js/ icons.js · api.js · editor.js · nim-chat.js · lsp.js · debug.js · extensions.js · app.js
-├── tests/smoke.js          # Tests de humo (node)
+├── tests/                  # Tests: smoke.js, runtime.test.js, dom.js (DOM simulado)
 ├── build.sh                # genera uri-code.apk
 └── README.md
 ```
@@ -63,10 +63,15 @@ Genera `uri-code.apk`; instálalo en tu dispositivo. La primera vez descarga `an
 ## Tests
 
 ```bash
-npm test        # o: node tests/smoke.js
+npm test              # todo
+npm run test:smoke    # sintaxis, carga de modulos y recursos
+npm run test:runtime  # arranque de la app en un DOM simulado
 ```
 
-Comprueba la sintaxis de todos los scripts, carga los módulos `UriExtensions`, `UriLSP` y `UriDebug`, y valida los recursos de la interfaz.
+- **`tests/smoke.js`**: comprueba la sintaxis de todos los scripts, carga los módulos `UriExtensions`, `UriLSP` y `UriDebug`, valida el orden de carga de los scripts y los recursos de la interfaz.
+- **`tests/runtime.test.js`**: ejecuta la app completa en un DOM simulado (`tests/dom.js`) y comprueba que arranca sin excepciones, que el workspace multi-raíz se dibuja y que las APIs de archivos, extensiones, depuración y LSP responden.
+
+> El banco de pruebas permite detectar errores en tiempo de ejecución sin un dispositivo Android.
 
 ## Atajos principales
 

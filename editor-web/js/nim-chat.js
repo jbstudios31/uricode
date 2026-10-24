@@ -83,7 +83,8 @@
     d.className = "msg " + kind;
     var who = { user: "Tú", ai: "Uri IA", sys: "", err: "" }[kind];
     d.innerHTML = (who ? '<div class="who">' + who + "</div>" : "") + '<div class="body"></div>';
-    var body = d.lastChild;
+    var body = d.querySelector ? d.querySelector(".body") : null;
+    if (!body) body = d.lastChild || d;
     if (kind === "ai") body.innerHTML = renderMd(text);
     else body.textContent = text;
     els.messages.appendChild(d);
@@ -228,6 +229,8 @@
   }
 
   function refresh() {
+    // Puede llamarse antes de init() (p. ej. al aplicar ajustes al arrancar).
+    if (!ctx || !els.modelLabel) return;
     var s = ctx.getSettings();
     els.modelLabel.textContent = s.nimModel || "";
     els.modelLabel.title = s.nimModel || "";

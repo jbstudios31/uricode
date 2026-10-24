@@ -4,6 +4,8 @@
   "description": "Uri Code — editor de código para Android con el aspecto de VS Code",
   "private": true,
   "scripts": {
-    "test": "node tests/smoke.js"
+    "test": "node tests/smoke.js && node tests/runtime.test.js",
+    "test:smoke": "node tests/smoke.js",
+    "test:runtime": "node tests/runtime.test.js"
   }
 }

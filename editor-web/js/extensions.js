@@ -72,6 +72,9 @@
       log("activada: " + id);
       return true;
     } catch (e) {
+      Object.keys(commands).forEach(function (k) {
+        if (commands[k].extensionId === id) delete commands[k];
+      });
       log("error al activar " + id + ": " + (e && e.message || e));
       return false;
     }
@@ -82,6 +85,10 @@
     if (!a) return false;
     try { if (typeof a.exports.deactivate === "function") a.exports.deactivate(); } catch (e) {}
     delete actives[id];
+    // Retira los comandos de la extension para que no sigan en la paleta.
+    Object.keys(commands).forEach(function (k) {
+      if (commands[k].extensionId === id) delete commands[k];
+    });
     log("desactivada: " + id);
     return true;
   }

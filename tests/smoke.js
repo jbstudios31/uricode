@@ -110,10 +110,56 @@ if (dbg) {
 /* 3. Recursos de la interfaz. */
 console.log("\n[3] Recursos");
 var html = fs.readFileSync(path.join(ROOT, "editor-web", "index.html"), "utf8");
-["termContainer", "replaceAllBtn", "diff-backdrop", "setTheme", "testAi"].forEach(function (id) {
+["termContainer", "replaceAllBtn", "diff-backdrop", "setTheme", "testAi", "debugPanel", "view-debug"].forEach(function (id) {
   ok(html.indexOf('id="' + id + '"') >= 0, "index.html contiene #" + id);
 });
 ok(fs.existsSync(path.join(ROOT, "editor-web", "vendor", "monaco", "vs", "loader.js")), "Monaco offline presente");
 
-console.log("\n" + (failures ? "FALLOS: " + failures + " / " + checks : "TODO OK: " + checks + " comprobaciones"));
-process.exit(failures ? 1 : 0);
+/* 4. Orden de carga de scripts. */
+console.log("\n[4] Orden de scripts");
+function scriptPos(src) { return html.indexOf('src="' + src + '"'); }
+var order = ["js/icons.js", "js/api.js", "js/editor.js", "js/nim-chat.js", "js/lsp.js", "js/debug.js", "js/extensions.js", "extensions/sample.js", "js/app.js"];
+var lastPos = -1, orderOk = true;
+order.forEach(function (src) {
+  var pos = scriptPos(src);
+  if (pos < 0) { orderOk = false; ok(false, "script presente: " + src); return; }
+  if (pos < lastPos) orderOk = false;
+  lastPos = pos;
+});
+ok(orderOk, "scripts cargados en el orden correcto (app.js al final)");
+
+/* 5. Clasificación de adaptadores LSP (asíncrono). */
+console.log("\n[5] Adaptadores LSP");
+var lspChecks = Promise.resolve();
+if (lsp) {
+  var lspWin = loadInSandbox(path.join(JS_DIR, "lsp.js"), {});
+  var L = lspWin.UriLSP;
+  lspChecks = ["javascript", "typescript", "json"].reduce(function (chain, lang) {
+    return chain.then(function () {
+      L.registerServer(lang, { command: "monaco" });
+      return L.connect(lang).then(function (conn) {
+        ok(conn.adapter === "monaco-ts", "LSP: " + lang + " usa el adaptador monaco-ts");
+      });
+    });
+  }, Promise.resolve()).then(function () {
+    L.registerServer("python", { command: "pylsp" });
+    return L.connect("python").then(function (conn) {
+      ok(conn.adapter === "empty", "LSP: python usa el adaptador empty");
+    });
+  });
+}
+
+/* 6. Las extensiones desactivadas retiran sus comandos. */
+console.log("\n[6] Ciclo de vida de extensiones");
+if (ext) {
+  ext.loadManifest({ id: "t2", name: "T2", version: "1.0", main: function (api) { api.registerCommand("t2.run", function () {}); } });
+  ext.activate("t2");
+  ok(ext.getCommands().some(function (c) { return c.id === "t2.run"; }), "comando t2.run registrado");
+  ext.deactivate("t2");
+  ok(!ext.getCommands().some(function (c) { return c.id === "t2.run"; }), "comando t2.run retirado al desactivar");
+}
+
+lspChecks.then(function () {
+  console.log("\n" + (failures ? "FALLOS: " + failures + " / " + checks : "TODO OK: " + checks + " comprobaciones"));
+  process.exit(failures ? 1 : 0);
+});

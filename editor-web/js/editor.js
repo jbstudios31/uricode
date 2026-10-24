@@ -162,7 +162,7 @@
         bracketPairColorization: { enabled: true },
         guides: { bracketPairs: true, indentation: true },
         lineNumbersMinChars: 3,
-        glyphMargin: false,
+        glyphMargin: true,
         folding: true,
         fixedOverflowWidgets: true,
         smoothScrolling: true,
