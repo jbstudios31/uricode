@@ -1333,6 +1333,58 @@
     });
   }
 
+  function runReplaceAll() {
+    var q = $("searchInput").value;
+    var repl = $("replaceInput").value;
+    if (!q) { toast("Escribe un texto a buscar", "error"); return; }
+    var re;
+    try { re = buildMatcher(q); } catch (e) { toast("Expresión regular no válida", "error"); return; }
+    ask("Reemplazar todas las coincidencias de \"" + q + "\" por \"" + repl + "\" en todos los archivos?", "Reemplazar todo", "Reemplazar", "Cancelar").then(function (ok) {
+      if (!ok) return;
+      var openContent = {};
+      S.tabs.forEach(function (t) { openContent[t.path] = UriEditor.getValue(t.path); });
+      allFiles().then(function (files) {
+        var totalRepl = 0, filesChanged = 0, i = 0, BATCH = 25;
+        function step() {
+          var batch = files.slice(i, i + BATCH);
+          i += batch.length;
+          Promise.all(batch.map(function (f) {
+            if (openContent[f.path] !== undefined) return Promise.resolve(openContent[f.path]);
+            if (f.size > 1000000) return Promise.resolve(null);
+            return API.readFile(f.path);
+          })).then(function (texts) {
+            var writes = [];
+            batch.forEach(function (f, k) {
+              var text = texts[k];
+              if (text === null || text.indexOf("\u0000") >= 0) return;
+              re.lastIndex = 0;
+              var count = (text.match(re) || []).length;
+              if (!count) return;
+              re.lastIndex = 0;
+              var newText = text.replace(re, function () { return repl; });
+              if (newText === text) return;
+              totalRepl += count; filesChanged++;
+              if (openContent[f.path] !== undefined) {
+                // update open tab editor
+                var tab = S.tabs.find(function (t) { return t.path === f.path; });
+                if (tab) { UriEditor.setValue(f.path, newText); tab.dirty = true; renderTabs(); }
+              }
+              writes.push(API.writeFile(f.path, newText));
+            });
+            Promise.all(writes).then(function () {
+              if (i < files.length) { setTimeout(step, 0); }
+              else {
+                toast("Reemplazados " + totalRepl + " en " + filesChanged + " archivos", "ok");
+                runSearch();
+              }
+            });
+          });
+        }
+        if (!files.length) { toast("Sin archivos", "info"); return; }
+        step();
+      });
+    });
+  }
   function addResultFile(container, f, matches) {
     var head = document.createElement("div");
     head.className = "res-file";
@@ -1463,10 +1515,24 @@
     }
     function runTermCmd(cmd) {
       var cwd = ($("termCwd").value || "").trim();
-      API.runCommand(cmd, cwd).then(function (r) {
-        if (r.stdout) term.write(r.stdout.replace(/\n/g, "\r\n"));
-        if (r.stderr) term.write("\r\n" + r.stderr.replace(/\n/g, "\r\n"));
-        term.write("\r\n[código " + r.code + "]\r\n$ ");
+      if (cmd === "clear" || cmd === "cls") { term.clear(); term.write("$ "); return; }
+      if (/^cd(\s|$)/.test(cmd)) {
+        var target = cmd.slice(2).trim() || "~";
+        API.runCommand("cd " + (target || ".") + " && pwd", cwd).then(function (r) {
+          if (r.code === 0 && r.stdout) {
+            var np = r.stdout.trim();
+            if (np) $("termCwd").value = np;
+            term.write("\r\n$ ");
+          } else {
+            term.write("\r\n" + (r.stderr || "cd: error") + "\r\n$ ");
+          }
+        });
+        return;
+      }
+      API.runCommandStream(cmd, cwd, function (chunk) {
+        term.write(String(chunk).replace(/\n/g, "\r\n"));
+      }).then(function (r) {
+        term.write("\r\n[código " + (r.code != null ? r.code : "?") + "]\r\n$ ");
       });
     }
 
@@ -1604,6 +1670,7 @@
     $("searchInput").addEventListener("keydown", function (e) { if (e.key === "Enter") runSearch(); });
     $("optCase").onclick = function () { searchOpts.caseSensitive = !searchOpts.caseSensitive; this.classList.toggle("on", searchOpts.caseSensitive); runSearch(); };
     $("optRegex").onclick = function () { searchOpts.regex = !searchOpts.regex; this.classList.toggle("on", searchOpts.regex); runSearch(); };
+    var rab = $("replaceAllBtn"); if (rab) rab.onclick = runReplaceAll;
 
     bindTree();
     bindSettings();

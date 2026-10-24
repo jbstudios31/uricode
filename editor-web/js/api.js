@@ -83,6 +83,32 @@
       }
       return Promise.resolve({ code: -1, stdout: "", stderr: "No disponible en navegador" });
     },
+    runCommandStream: function (cmd, cwd, onChunk) {
+      return new Promise(function (resolve) {
+        if (!(native && typeof window.FileAPI.runCommandStream === "function")) {
+          resolve({ code: -1, stderr: "No disponible en navegador" }); return;
+        }
+        var id = "t" + Date.now() + "_" + Math.random().toString(36).slice(2);
+        var code = -1;
+        window.__uriTermChunk = function (cbId, b64) {
+          if (cbId !== id) return;
+          try {
+            var bin = atob(b64);
+            var bytes = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            var text = new TextDecoder().decode(bytes);
+            if (typeof onChunk === "function") onChunk(text);
+          } catch (e) {}
+        };
+        window.__uriTermDone = function (cbId, c) {
+          if (cbId !== id) return;
+          code = c;
+          resolve({ code: code });
+        };
+        try { window.FileAPI.runCommandStream(id, String(cmd || ""), cwd || ""); }
+        catch (e) { resolve({ code: -1, stderr: String(e && e.message || e) }); }
+      });
+    },
 
     /* Comparte el texto de un archivo (hoja de compartir de Android; descarga en navegador). */
     shareText: function (name, text) {

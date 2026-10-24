@@ -411,6 +411,51 @@ public class MainActivity extends Activity {
             }
         }
 
+        /** Ejecuta un comando de shell con salida en streaming. Callbacks: window.__uriTermChunk(id, base64) y window.__uriTermDone(id, code). */
+        @JavascriptInterface
+        public void runCommandStream(final String id, final String cmd, final String relCwd) {
+            new Thread(new Runnable() {
+                public void run() {
+                    if (cmd == null || cmd.trim().isEmpty()) { termDone(id, -1); return; }
+                    File cwd = resolve(relCwd == null || relCwd.isEmpty() ? "" : relCwd);
+                    if (cwd == null || !cwd.isDirectory()) cwd = root();
+                    if (cwd == null) { termDone(id, -1); return; }
+                    try {
+                        ProcessBuilder pb = new ProcessBuilder("/system/bin/sh", "-c", cmd);
+                        pb.directory(cwd);
+                        pb.redirectErrorStream(true);
+                        final Process pr = pb.start();
+                        final java.io.InputStream in = pr.getInputStream();
+                        byte[] buf = new byte[4096];
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            byte[] chunk = java.util.Arrays.copyOf(buf, n);
+                            String b64 = android.util.Base64.encodeToString(chunk, android.util.Base64.NO_WRAP);
+                            termChunk(id, b64);
+                        }
+                        boolean finished = pr.waitFor(120, java.util.concurrent.TimeUnit.SECONDS);
+                        if (!finished) { pr.destroyForcibly(); }
+                        int code = finished ? pr.exitValue() : -1;
+                        termDone(id, code);
+                    } catch (Exception ex) {
+                        String msg = ex.getClass().getSimpleName() + ": " + ex.getMessage() + "\n";
+                        String b64 = android.util.Base64.encodeToString(msg.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
+                        termChunk(id, b64);
+                        termDone(id, -1);
+                    }
+                }
+            }).start();
+        }
+
+        private void termChunk(final String id, final String b64) {
+            final String js = "window.__uriTermChunk && window.__uriTermChunk(" + org.json.JSONObject.quote(id) + "," + org.json.JSONObject.quote(b64) + ")";
+            web.post(new Runnable() { public void run() { try { web.evaluateJavascript(js, null); } catch (Exception ignored) {} } });
+        }
+        private void termDone(final String id, final int code) {
+            final String js = "window.__uriTermDone && window.__uriTermDone(" + org.json.JSONObject.quote(id) + "," + code + ")";
+            web.post(new Runnable() { public void run() { try { web.evaluateJavascript(js, null); } catch (Exception ignored) {} } });
+        }
+
         private void copyStream(java.io.InputStream in, java.io.OutputStream out) throws Exception {
             byte[] buf = new byte[8192];
             int n;
