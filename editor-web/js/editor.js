@@ -164,8 +164,46 @@
         cursorBlinking: "blink",
         padding: { top: 4 },
         scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
-        accessibilitySupport: "off"
+        accessibilitySupport: "off",
+        quickSuggestions: { other: true, comments: false, strings: false },
+        suggestOnTriggerCharacters: true,
+        acceptSuggestionOnEnter: "on",
+        tabCompletion: "on",
+        wordBasedSuggestions: "allDocuments",
+        snippetSuggestions: "top",
+        parameterHints: { enabled: true },
+        suggest: {
+          showWords: true, showSnippets: true, showFunctions: true, showVariables: true,
+          showClasses: true, showModules: true, showProperties: true, showMethods: true,
+          filterGraceful: true, localityBonus: true
+        },
+        autoClosingBrackets: "always",
+        autoClosingQuotes: "always",
+        formatOnType: true,
+        formatOnPaste: true
       });
+
+      // Configurar IntelliSense para JS/TS
+      try {
+        if (mon.languages && mon.languages.typescript) {
+          var jsDefaults = mon.languages.typescript.javascriptDefaults;
+          var tsDefaults = mon.languages.typescript.typescriptDefaults;
+          [jsDefaults, tsDefaults].forEach(function (d) {
+            d.setCompilerOptions({
+              target: mon.languages.typescript.ScriptTarget.ES2020,
+              allowNonTsExtensions: true,
+              moduleResolution: mon.languages.typescript.ModuleResolutionKind.NodeJs,
+              module: mon.languages.typescript.ModuleKind.CommonJS,
+              noEmit: true,
+              esModuleInterop: true,
+              allowJs: true,
+              checkJs: false
+            });
+            d.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false });
+            d.setEagerModelSync(true);
+          });
+        }
+      } catch (e) {}
 
       editor.onDidChangeCursorSelection(function () { emitCursor(); });
       mon.editor.onDidChangeMarkers(function () {
