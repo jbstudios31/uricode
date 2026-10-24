@@ -410,3 +410,30 @@ textarea.input { resize: vertical; }
 #diff-box { flex: 1; display: flex; flex-direction: column; background: var(--bg-editor); border: 1px solid var(--border-light); border-radius: 4px; overflow: hidden; }
 .diff-titlebar { height: 32px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; background: var(--bg-title); font-size: 12px; }
 #diffHost { width: 100%; height: 100%; }
+
+/* ---------- Tema claro ---------- */
+:root[data-theme="light"] {
+  --bg-editor: #ffffff;
+  --bg-sidebar: #f3f3f3;
+  --bg-activity: #2c2c2c;
+  --bg-title: #dddddd;
+  --bg-tab-bar: #ececec;
+  --bg-tab: #ececec;
+  --bg-input: #ffffff;
+  --bg-hover: #e8e8e8;
+  --bg-selected: #d6ebff;
+  --bg-focus: #0078d4;
+  --bg-menu: #ffffff;
+  --fg: #333333;
+  --fg-bright: #000000;
+  --fg-dim: #6a6a6a;
+  --fg-tab-inactive: #6a6a6a;
+  --accent: #0078d4;
+  --accent-hover: #005a9e;
+  --button: #0078d4;
+  --border: #e5e5e5;
+  --border-light: #cccccc;
+  --error: #e51400;
+  --warning: #bf8803;
+}
+:root[data-theme="light"] body { background: var(--bg-editor); color: var(--fg); }

@@ -43,7 +43,7 @@
   }
 
   /* ================= Estado ================= */
-  var DEFAULTS = { fontSize: 14, wordWrap: true, minimap: null, autoSave: true, nimKey: "", nimModel: "meta/llama-3.1-8b-instruct", snippets: "" };
+  var DEFAULTS = { fontSize: 14, wordWrap: true, minimap: null, autoSave: true, nimKey: "", nimModel: "meta/llama-3.1-8b-instruct", snippets: "", theme: "dark" };
   var APP_VERSION = "3.0.0";
   var UPDATE_REPO = "jbstudios31/uricode";
 
@@ -1486,8 +1486,13 @@
   }
 
   /* ================= Ajustes ================= */
+  function applyTheme() {
+    document.documentElement.setAttribute("data-theme", S.settings.theme || "dark");
+    if (window.monaco && monaco.editor) { try { monaco.editor.setTheme((S.settings.theme === "light") ? "vs" : "uri-dark"); } catch (e) {} }
+  }
   function applySettings() {
     UriEditor.applyOptions({ fontSize: S.settings.fontSize, wordWrap: S.settings.wordWrap, minimap: S.settings.minimap });
+    applyTheme();
     refreshSettingsUI();
     Chat.refresh();
   }
@@ -1500,6 +1505,7 @@
     if (document.activeElement !== $("setKey")) $("setKey").value = S.settings.nimKey || "";
     if (document.activeElement !== $("setModel")) $("setModel").value = S.settings.nimModel || "";
     if (document.activeElement !== $("setSnippets")) $("setSnippets").value = S.settings.snippets || "";
+    if (document.activeElement !== $("setTheme")) $("setTheme").value = S.settings.theme || "dark";
   }
 
   function getSnippets() {
@@ -1518,6 +1524,7 @@
       S.settings.nimModel = e.target.value.trim() || DEFAULTS.nimModel; saveSettings(); Chat.refresh();
     };
     $("setSnippets").oninput = function (e) { S.settings.snippets = e.target.value; saveSettings(); };
+    $("setTheme").onchange = function (e) { S.settings.theme = e.target.value; saveSettings(); applyTheme(); };
     var cu = $("checkUpdate");
     if (cu) cu.onclick = function () { checkUpdate(true); };
     var ta = $("testAi");
@@ -1780,7 +1787,7 @@
     loadSettings();
     bindUI();
     bindKeys();
-    refreshSettingsUI();
+    applySettings();
     var vc = $("verCurrent"); if (vc) vc.textContent = APP_VERSION;
     setTimeout(function () { checkUpdate(false); }, 4000);
 
