@@ -4,7 +4,7 @@
   "description": "Uri Code — editor de código para Android con el aspecto de VS Code",
   "private": true,
   "scripts": {
-    "test": "node tests/smoke.js && node tests/runtime.test.js && node tests/features.test.js && node tests/panels.test.js && node tests/chat.test.js && node tests/cursor.test.js && node tests/lsp.test.js && node tests/git.test.js && node tests/settings.test.js && node tests/mobile.test.js",
+    "test": "node tests/smoke.js && node tests/runtime.test.js && node tests/features.test.js && node tests/panels.test.js && node tests/chat.test.js && node tests/cursor.test.js && node tests/lsp.test.js && node tests/git.test.js && node tests/settings.test.js && node tests/mobile.test.js && node tests/terminal.test.js && node tests/settings-view.test.js",
     "test:smoke": "node tests/smoke.js",
     "test:runtime": "node tests/runtime.test.js",
     "test:features": "node tests/features.test.js",
@@ -14,6 +14,8 @@
     "test:lsp": "node tests/lsp.test.js",
     "test:mobile": "node tests/mobile.test.js",
     "test:git": "node tests/git.test.js",
-    "test:settings": "node tests/settings.test.js"
+    "test:settings": "node tests/settings.test.js",
+    "test:terminal": "node tests/terminal.test.js",
+    "test:settings-view": "node tests/settings-view.test.js"
   }
 }

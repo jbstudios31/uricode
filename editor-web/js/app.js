@@ -233,6 +233,7 @@
     problemMarkers: [],
     outputLines: [],
     terminalFocusHandler: null,
+    terminal: null,
     keybarVisible: true
   };
 
@@ -559,14 +560,20 @@
     if (S.view === name && sidebarVisible() && !focusInput) { showSidebar(false); return; }
     S.view = name;
     document.body.classList.toggle("terminal-sheet", name === "terminal" && isNarrow());
-    if (name === "terminal" && typeof S.terminalFocusHandler === "function") {
-      setTimeout(function () { S.terminalFocusHandler(); }, 80);
+    if (name === "terminal") {
+      if (!S.terminal) initTerminal();
+      var ta = S.terminal && S.terminal.fitAddon;
+      if (ta) try { ta.fit(); } catch (e) {}
+      if (typeof S.terminalFocusHandler === "function") {
+        setTimeout(function () { S.terminalFocusHandler(); }, 80);
+      }
     }
     document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("active", v.id === "view-" + name); });
     showSidebar(true);
     if (name === "search") setTimeout(function () { $("searchInput").focus(); $("searchInput").select(); }, 50);
     if (name === "ai" && !isCoarse()) setTimeout(function () { Chat.focus(); }, 50);
     if (name === "settings") {
+      renderSettings();
       refreshSettingsUI();
       if (focusInput) setTimeout(function () { $("setSearch").focus(); }, 50);
     }
@@ -2292,12 +2299,14 @@
     });
   }
   function refreshSettingsUI() {
+    var anyMissing = false;
     SETTINGS.forEach(function (setting) {
       var control = $(settingControlId(setting));
-      if (!control) return;
+      if (!control) { anyMissing = true; return; }
       if (setting.type === "checkbox") control.checked = !!S.settings[setting.id];
       else if (document.activeElement !== control) control.value = S.settings[setting.id] == null ? "" : String(S.settings[setting.id]);
     });
+    if (anyMissing) renderSettings();
   }
   function settingValue(setting, control) {
     var value;
@@ -2856,7 +2865,7 @@
     });
   }
 
-  function bindTermGit() {
+  function initTerminal() {
     var term = null, fitAddon = null, history = [], histIdx = -1, inputBuf = "";
     if (typeof Terminal !== "undefined") {
       term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: "Consolas, 'Roboto Mono', monospace", theme: { background: "#0c0c0c", foreground: "#cccccc" } });
@@ -2867,6 +2876,36 @@
       window.addEventListener("resize", function () { if (fitAddon) try { fitAddon.fit(); } catch (e) {} });
       term.writeln("Uri Code Terminal. Escribe un comando y presiona Enter.");
       term.write("$ ");
+
+      function runTermCmd(cmd) {
+        var cwd = ($("termCwd").value || "").trim();
+        if (cmd === "clear" || cmd === "cls") {
+          log("Terminal command completed: " + cmd + " (code 0)");
+          if (term) { term.clear(); term.write("$ "); }
+          return;
+        }
+        if (/^cd(\s|$)/.test(cmd)) {
+          var target = cmd.slice(2).trim() || "~";
+          API.runCommand("cd " + (target || ".") + " && pwd", cwd).then(function (r) {
+            if (r.code === 0 && r.stdout) {
+              var np = r.stdout.trim();
+              if (np) $("termCwd").value = np;
+              if (term) term.write("\r\n$ ");
+            } else {
+              if (term) term.write("\r\n" + (r.stderr || "cd: error") + "\r\n$ ");
+            }
+            log("Terminal command completed: " + cmd + " (code " + (r.code != null ? r.code : "?") + ")");
+          });
+          return;
+        }
+        API.runCommandStream(cmd, cwd, function (chunk) {
+          if (term) term.write(String(chunk).replace(/\n/g, "\r\n"));
+        }).then(function (r) {
+          if (term) term.write("\r\n[código " + (r.code != null ? r.code : "?") + "]\r\n$ ");
+          log("Terminal command completed: " + cmd + " (code " + (r.code != null ? r.code : "?") + ")");
+        });
+      }
+
       term.onData(function (data) {
         if (data === "\r") {
           var line = inputBuf; inputBuf = "";
@@ -2891,34 +2930,18 @@
         }
       });
     }
-    function runTermCmd(cmd) {
-      var cwd = ($("termCwd").value || "").trim();
-      if (cmd === "clear" || cmd === "cls") {
-        log("Terminal command completed: " + cmd + " (code 0)");
-        if (term) { term.clear(); term.write("$ "); }
-        return;
-      }
-      if (/^cd(\s|$)/.test(cmd)) {
-        var target = cmd.slice(2).trim() || "~";
-        API.runCommand("cd " + (target || ".") + " && pwd", cwd).then(function (r) {
-          if (r.code === 0 && r.stdout) {
-            var np = r.stdout.trim();
-            if (np) $("termCwd").value = np;
-            if (term) term.write("\r\n$ ");
-          } else {
-            if (term) term.write("\r\n" + (r.stderr || "cd: error") + "\r\n$ ");
-          }
-          log("Terminal command completed: " + cmd + " (code " + (r.code != null ? r.code : "?") + ")");
-        });
-        return;
-      }
-      API.runCommandStream(cmd, cwd, function (chunk) {
-        if (term) term.write(String(chunk).replace(/\n/g, "\r\n"));
-      }).then(function (r) {
-        if (term) term.write("\r\n[código " + (r.code != null ? r.code : "?") + "]\r\n$ ");
-        log("Terminal command completed: " + cmd + " (code " + (r.code != null ? r.code : "?") + ")");
-      });
+    S.terminal = { term: term, fitAddon: fitAddon };
+    return S.terminal;
+  }
+
+  function bindTermGit() {
+    var t = null;
+    try { t = initTerminal(); } catch (e) {
+      log("Terminal: no se pudo iniciar (" + String(e && e.message || e) + ")", "error");
+      toast("Terminal no disponible: xterm no cargó", "error");
+      return;
     }
+    var term = t.term, fitAddon = t.fitAddon;
 
     var gitStatusBtn = $("gitStatus"); if (gitStatusBtn) gitStatusBtn.addEventListener("click", function () {
       refreshGit(true);
@@ -3137,9 +3160,9 @@
     var rab = $("replaceAllBtn"); if (rab) rab.onclick = runReplaceAll;
 
     bindTree();
-    bindSettings();
+    try { bindSettings(); } catch (e) { log("bindSettings falló: " + String(e && e.message || e), "error"); }
     buildKeybar();
-    bindTermGit();
+    try { bindTermGit(); } catch (e) { log("bindTermGit falló: " + String(e && e.message || e), "error"); }
     updateCoarse();
 
     var mq = window.matchMedia("(max-width: 760px)");
@@ -3371,7 +3394,8 @@
     getKeybindings: function () { return S.registeredKeybindings.map(function (binding) { return Object.assign({}, binding); }); },
     setKeybinding: setKeybinding,
     resetKeybindings: resetKeybindings,
-    render: renderSettings
+    render: renderSettings,
+    refreshSettingsUI: refreshSettingsUI
   };
 
   boot();
