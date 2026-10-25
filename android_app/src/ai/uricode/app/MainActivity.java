@@ -121,6 +121,8 @@ public class MainActivity extends Activity {
             }
         });
 
+        // Borra la cache del WebView para forzar la carga de la version actualizada.
+        try { web.clearCache(true); } catch (Exception ignored) {}
         web.loadUrl("file:///android_asset/index.html");
     }
 
