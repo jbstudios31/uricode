@@ -67,7 +67,7 @@ public class MainActivity extends Activity {
         st.setAllowFileAccessFromFileURLs(true);   // Monaco (CDN) se carga desde la pagina local
         st.setAllowUniversalAccessFromFileURLs(false);
         st.setAllowContentAccess(false);
-        st.setCacheMode(WebSettings.LOAD_DEFAULT);  // cachea Monaco para abrir rapido
+        st.setCacheMode(WebSettings.LOAD_NO_CACHE);  // fuerza la recarga de los recursos actualizados
         st.setSupportZoom(false);
         st.setTextZoom(100);
         st.setDefaultTextEncodingName("utf-8");

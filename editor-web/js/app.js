@@ -559,6 +559,9 @@
     if (S.view === name && sidebarVisible() && !focusInput) { showSidebar(false); return; }
     S.view = name;
     document.body.classList.toggle("terminal-sheet", name === "terminal" && isNarrow());
+    if (name === "terminal" && typeof S.terminalFocusHandler === "function") {
+      setTimeout(function () { S.terminalFocusHandler(); }, 80);
+    }
     document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("active", v.id === "view-" + name); });
     showSidebar(true);
     if (name === "search") setTimeout(function () { $("searchInput").focus(); $("searchInput").select(); }, 50);
