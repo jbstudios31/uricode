@@ -1,0 +1,40 @@
+{
+  "name": "uri-code",
+  "version": "3.5.2",
+  "description": "Uri Code — editor de código para Linux con el aspecto de VS Code",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:linux": "electron-builder --linux",
+    "build:appimage": "electron-builder --linux AppImage",
+    "build:deb": "electron-builder --linux deb"
+  },
+  "build": {
+    "appId": "com.uricode.app",
+    "productName": "Uri Code",
+    "directories": {
+      "output": "dist",
+      "buildResources": "buildResources"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "fileapi.js",
+      "shell.js",
+      "lsp.js",
+      "http.js",
+      "../editor-web/**/*"
+    ],
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Development",
+      "icon": "buildResources/icon.png"
+    }
+  },
+  "dependencies": {
+    "electron": "^33.0.0"
+  },
+  "devDependencies": {
+    "electron-builder": "^25.0.0"
+  }
+}

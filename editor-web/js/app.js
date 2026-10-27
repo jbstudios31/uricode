@@ -1690,6 +1690,35 @@
   }
 
   function importFiles() {
+    if (isDesktop()) {
+      window.DesktopDialogs.openFile().then(function (paths) {
+        if (!paths || !paths.length) return;
+        var dir = targetDir();
+        var chain = Promise.resolve();
+        var done = 0, first = null;
+        paths.forEach(function (p) {
+          chain = chain.then(function () {
+            return API.readFile(p).then(function (text) {
+              if (text.indexOf("\u0000") >= 0) return null;
+              var root = S.rootAbs || "";
+              var rel = p;
+              if (root && p.indexOf(root) === 0) rel = p.slice(root.length).replace(/^\/+/, "");
+              return API.writeFile(rel, text).then(function (ok) {
+                if (ok) { done++; if (!first) first = rel; }
+              });
+            });
+          });
+        });
+        chain.then(function () {
+          if (dir) S.expanded[dir] = true;
+          return refreshTree();
+        }).then(function () {
+          toast(done + " archivo" + (done === 1 ? "" : "s") + " importado" + (done === 1 ? "" : "s"));
+          if (first) return openFile(first);
+        });
+      });
+      return;
+    }
     var inp = $("importInput");
     inp.value = "";
     inp.click();
@@ -2866,7 +2895,7 @@
   }
 
   function initTerminal() {
-    var term = null, fitAddon = null, history = [], histIdx = -1, inputBuf = "";
+    var term = null, fitAddon = null, shellId = null;
     if (typeof Terminal !== "undefined") {
       term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: "Consolas, 'Roboto Mono', monospace", theme: { background: "#0c0c0c", foreground: "#cccccc" } });
       if (typeof FitAddon !== "undefined") { fitAddon = new FitAddon.FitAddon(); term.loadAddon(fitAddon); }
@@ -2874,60 +2903,51 @@
       S.terminalFocusHandler = function () { if (term && typeof term.focus === "function") term.focus(); };
       if (fitAddon) try { fitAddon.fit(); } catch (e) {}
       window.addEventListener("resize", function () { if (fitAddon) try { fitAddon.fit(); } catch (e) {} });
-      term.writeln("Uri Code Terminal. Escribe un comando y presiona Enter.");
+
+      // Inicializar shell interactivo persistente (tipo Termux).
+      var cwd = $("termCwd") ? String($("termCwd").value || "").trim() : "";
+      shellId = "sh-" + Date.now() + "_" + Math.random().toString(36).slice(2);
+      S.shellId = shellId;
+      API.startShell(shellId, cwd).then(function (ok) {
+        if (!ok) {
+          log("Terminal: no se pudo iniciar shell interactivo", "error");
+          term.writeln("Error: no se pudo iniciar el shell interactivo.\r\n$ ");
+        }
+      });
+
+      term.writeln("Uri Code Terminal. Shell interactivo persistente.");
       term.write("$ ");
 
-      function runTermCmd(cmd) {
-        var cwd = ($("termCwd").value || "").trim();
-        if (cmd === "clear" || cmd === "cls") {
-          log("Terminal command completed: " + cmd + " (code 0)");
-          if (term) { term.clear(); term.write("$ "); }
-          return;
-        }
-        if (/^cd(\s|$)/.test(cmd)) {
-          var target = cmd.slice(2).trim() || "~";
-          API.runCommand("cd " + (target || ".") + " && pwd", cwd).then(function (r) {
-            if (r.code === 0 && r.stdout) {
-              var np = r.stdout.trim();
-              if (np) $("termCwd").value = np;
-              if (term) term.write("\r\n$ ");
-            } else {
-              if (term) term.write("\r\n" + (r.stderr || "cd: error") + "\r\n$ ");
-            }
-            log("Terminal command completed: " + cmd + " (code " + (r.code != null ? r.code : "?") + ")");
-          });
-          return;
-        }
-        API.runCommandStream(cmd, cwd, function (chunk) {
-          if (term) term.write(String(chunk).replace(/\n/g, "\r\n"));
-        }).then(function (r) {
-          if (term) term.write("\r\n[código " + (r.code != null ? r.code : "?") + "]\r\n$ ");
-          log("Terminal command completed: " + cmd + " (code " + (r.code != null ? r.code : "?") + ")");
-        });
-      }
+      // Callback: salida del shell en streaming.
+      window.__uriShellData = function (id, b64) {
+        if (id !== shellId) return;
+        try {
+          var bin = atob(String(b64));
+          var bytes = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          var text = new TextDecoder("utf-8").decode(bytes);
+          if (term) term.write(text);
+        } catch (e) {}
+      };
+      // Callback: cierre del shell.
+      window.__uriShellClosed = function (id, code) {
+        if (id !== shellId) return;
+        if (term) term.write("\r\n[Shell cerrado, codigo " + code + "]\r\n");
+        S.shellId = null;
+      };
 
       term.onData(function (data) {
-        if (data === "\r") {
-          var line = inputBuf; inputBuf = "";
-          term.write("\r\n");
-          if (line.trim()) {
-            history.unshift(line); if (history.length > 50) history.pop(); histIdx = -1;
-            runTermCmd(line.trim());
-          } else { term.write("$ "); }
-        } else if (data === "\u007f") {
-          if (inputBuf.length > 0) { inputBuf = inputBuf.slice(0, -1); term.write("\b \b"); }
-        } else if (data === "\u001b[A") {
-          if (history.length) {
-            histIdx = Math.min(histIdx + 1, history.length - 1);
-            term.write("\r\x1b[K$ " + history[histIdx]);
-            inputBuf = history[histIdx];
-          }
-        } else if (data === "\u001b[B") {
-          if (histIdx > 0) { histIdx--; term.write("\r\x1b[K$ " + (history[histIdx] || "")); inputBuf = history[histIdx] || ""; }
-          else { histIdx = -1; term.write("\r\x1b[K$ "); inputBuf = ""; }
-        } else if (data.charCodeAt(0) >= 32) {
-          inputBuf += data; term.write(data);
+        if (!shellId) { term.write("\r\nShell no disponible.\r\n$ "); return; }
+        // Ctrl+C: enviar SIGINT al shell.
+        if (data === "\x03") {
+          API.sendToShell(shellId, "\x03").then(function () {});
+          term.write("^C");
+          return;
         }
+        // Enviar cada keystroke al shell (el shell maneja echo, edición de línea, completion).
+        API.sendToShell(shellId, data).then(function (ok) {
+          if (!ok && term) term.write("\r\n[Error enviando al shell]\r\n$ ");
+        });
       });
     }
     S.terminal = { term: term, fitAddon: fitAddon };
@@ -3277,6 +3297,74 @@
     toast("LSP: " + names.length + " adaptador(es), " + conn.length + " conectado(s)");
   }
 
+  /* ================= Escritorio (Electron) ================= */
+  function isDesktop() {
+    return typeof window.DesktopMenu !== "undefined" && typeof window.DesktopDialogs !== "undefined";
+  }
+  function setupDesktop() {
+    if (!isDesktop()) return;
+    // Menú nativo → acciones del editor.
+    var menuMap = {
+      "menu:newFile": function () { newItem("file"); },
+      "menu:openFile": function () {
+        window.DesktopDialogs.openFile().then(function (paths) {
+          if (!paths || !paths.length) return;
+          paths.forEach(function (p) {
+            // Convertir ruta absoluta a relativa respecto a la raíz.
+            var root = S.rootAbs || "";
+            var rel = p;
+            if (root && p.indexOf(root) === 0) rel = p.slice(root.length).replace(/^\/+/, "");
+            openFile(rel);
+          });
+        });
+      },
+      "menu:openFolder": function () {
+        window.DesktopDialogs.openFolder().then(function (folder) {
+          if (!folder) return;
+          var root = S.rootAbs || "";
+          var rel = folder;
+          if (root && folder.indexOf(root) === 0) rel = folder.slice(root.length).replace(/^\/+/, "");
+          if (rel && S.roots.indexOf(rel) < 0) {
+            addRoot(rel);
+            refreshTree().then(function () { toast("Carpeta agregada: " + rootName(rel)); });
+          }
+        });
+      },
+      "menu:save": function () { saveCurrent(); },
+      "menu:saveAs": function () {
+        var t = currentTab();
+        if (!t) return;
+        window.DesktopDialogs.saveFile(baseName(t.path)).then(function (fp) {
+          if (!fp) return;
+          var root = S.rootAbs || "";
+          var rel = fp;
+          if (root && fp.indexOf(root) === 0) rel = fp.slice(root.length).replace(/^\/+/, "");
+          API.renameItem(t.path, rel).then(function (ok) {
+            if (!ok) { toast("No se pudo guardar como", "error"); return; }
+            t.path = rel;
+            t.lang = langOf(rel);
+            UriEditor.renamePath(t.path, rel);
+            renderTabs();
+            saveCurrent();
+            toast("Guardado como " + baseName(rel));
+          });
+        });
+      },
+      "menu:find": function () { if (needTab()) UriEditor.action("actions.find"); },
+      "menu:replace": function () { if (needTab()) UriEditor.action("editor.action.startFindReplaceAction"); },
+      "menu:commandPalette": function () { openPalette(">"); },
+      "menu:explorer": function () { setView("explorer", true); },
+      "menu:search": function () { setView("search", true); },
+      "menu:git": function () { setView("git", true); },
+      "menu:terminal": function () { setView("terminal", true); if (typeof S.terminalFocusHandler === "function") S.terminalFocusHandler(); },
+      "menu:about": function () { toast("Uri Code v" + APP_VERSION + " — Linux", "info"); }
+    };
+    Object.keys(menuMap).forEach(function (ch) {
+      window.DesktopMenu.on(ch, menuMap[ch]);
+    });
+    log("Escritorio: menu nativo conectado", "info");
+  }
+
   function boot() {
     loadSettings();
     loadKeybindings();
@@ -3288,6 +3376,7 @@
     setupExtensions();
     setupDebug();
     setupLSP();
+    setupDesktop();
     // Tab para saltar entre tab-stops de snippets
     if (window.monaco && monaco.editor && monaco.editor.getEditors) {
       // defer until editor ready

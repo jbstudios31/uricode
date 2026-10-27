@@ -66,20 +66,24 @@
   var API = {
     isNative: native,
     listDir: function (rel) {
-      var r = backend.listDir(rel || "");
-      return Promise.resolve(typeof r === "string" ? parseList(r) : r);
+      return Promise.resolve(backend.listDir(rel || "")).then(function (r) {
+        return typeof r === "string" ? parseList(r) : (r || []);
+      });
     },
-    exists: function (rel) { return Promise.resolve(!!backend.exists(rel || "")); },
-    readFile: function (rel) { return Promise.resolve(String(backend.readFile(rel) || "")); },
-    writeFile: function (rel, content) { return Promise.resolve(!!backend.writeFile(rel, content == null ? "" : String(content))); },
-    mkdir: function (rel) { return Promise.resolve(!!backend.mkdir(rel)); },
-    deleteItem: function (rel) { return Promise.resolve(!!backend.deleteItem(rel)); },
-    renameItem: function (a, b) { return Promise.resolve(!!backend.renameItem(a, b)); },
-    getRoot: function () { return Promise.resolve(String(backend.getRoot())); },
+    exists: function (rel) { return Promise.resolve(backend.exists(rel || "")).then(function (r) { return !!r; }); },
+    readFile: function (rel) { return Promise.resolve(backend.readFile(rel)).then(function (r) { return String(r == null ? "" : r); }); },
+    writeFile: function (rel, content) { return Promise.resolve(backend.writeFile(rel, content == null ? "" : String(content))).then(function (r) { return !!r; }); },
+    mkdir: function (rel) { return Promise.resolve(backend.mkdir(rel)).then(function (r) { return !!r; }); },
+    deleteItem: function (rel) { return Promise.resolve(backend.deleteItem(rel)).then(function (r) { return !!r; }); },
+    renameItem: function (a, b) { return Promise.resolve(backend.renameItem(a, b)).then(function (r) { return !!r; }); },
+    getRoot: function () { return Promise.resolve(backend.getRoot()).then(function (r) { return String(r == null ? "" : r); }); },
     runCommand: function (cmd, cwd) {
       if (native && typeof window.FileAPI.runCommand === "function") {
-        try { return Promise.resolve(JSON.parse(window.FileAPI.runCommand(String(cmd || ""), cwd || ""))); }
-        catch (e) { return Promise.resolve({ code: -1, stdout: "", stderr: String(e && e.message || e) }); }
+        try {
+          return Promise.resolve(window.FileAPI.runCommand(String(cmd || ""), cwd || "")).then(function (r) {
+            return typeof r === "string" ? JSON.parse(r) : r;
+          }).catch(function (e) { return { code: -1, stdout: "", stderr: String(e && e.message || e) }; });
+        } catch (e) { return Promise.resolve({ code: -1, stdout: "", stderr: String(e && e.message || e) }); }
       }
       return Promise.resolve({ code: -1, stdout: "", stderr: "No disponible en navegador" });
     },
@@ -105,7 +109,10 @@
           code = c;
           resolve({ code: code });
         };
-        try { window.FileAPI.runCommandStream(id, String(cmd || ""), cwd || ""); }
+        try {
+          var r = window.FileAPI.runCommandStream(id, String(cmd || ""), cwd || "");
+          if (r && typeof r.then === "function") r.then(function () {}, function () {});
+        }
         catch (e) { resolve({ code: -1, stderr: String(e && e.message || e) }); }
       });
     },
@@ -119,6 +126,33 @@
       a.download = name;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
+    },
+
+    /* Shell interactivo (tipo Termux). */
+    startShell: function (id, cwd) {
+      if (native && typeof window.FileAPI.startShell === "function") {
+        try { return Promise.resolve(window.FileAPI.startShell(String(id), cwd || "")).then(function (r) { return !!r; }); }
+        catch (e) { return Promise.resolve(false); }
+      }
+      return Promise.resolve(false);
+    },
+    sendToShell: function (id, text) {
+      if (native && typeof window.FileAPI.sendToShell === "function") {
+        try {
+          // Convertir texto a base64.
+          var bytes = new TextEncoder().encode(String(text));
+          var b64 = btoa(String.fromCharCode.apply(null, bytes));
+          return Promise.resolve(window.FileAPI.sendToShell(String(id), b64)).then(function (r) { return !!r; });
+        } catch (e) { return Promise.resolve(false); }
+      }
+      return Promise.resolve(false);
+    },
+    stopShell: function (id) {
+      if (native && typeof window.FileAPI.stopShell === "function") {
+        try { return Promise.resolve(window.FileAPI.stopShell(String(id))).then(function (r) { return !!r; }); }
+        catch (e) { return Promise.resolve(false); }
+      }
+      return Promise.resolve(false);
     },
 
     /* POST HTTP. En Android se hace desde Java (sin CORS); en navegador con fetch. */

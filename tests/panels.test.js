@@ -86,15 +86,20 @@ function fire(element) {
   var activityOutput = dom.makeElement("activityOutput", "button");
   activityOutput.setAttribute("data-view", "output");
   activityOutput.classList = makeClassList();
+  var activityTerminal = dom.makeElement("activityTerminal", "button");
+  activityTerminal.setAttribute("data-view", "terminal");
+  activityTerminal.classList = makeClassList();
   var problemsView = ctx.document.getElementById("view-problems");
   problemsView.classList = makeClassList();
   var outputView = ctx.document.getElementById("view-output");
   outputView.classList = makeClassList();
+  var terminalView = ctx.document.getElementById("view-terminal");
+  terminalView.classList = makeClassList();
 
   var querySelectorAll = ctx.document.querySelectorAll;
   ctx.document.querySelectorAll = function (selector) {
-    if (selector === ".ab-item") return [activityProblems, activityOutput];
-    if (selector === ".view") return [problemsView, outputView];
+    if (selector === ".ab-item") return [activityProblems, activityOutput, activityTerminal];
+    if (selector === ".view") return [problemsView, outputView, terminalView];
     return querySelectorAll.call(this, selector);
   };
 
@@ -171,8 +176,16 @@ function fire(element) {
   ok(outputView.classList.contains("active"), "el boton de actividad abre OUTPUT");
   var output = ctx.elements["outputLog"];
   ok(!!output && output._children.length > 0, "el output registra eventos de arranque");
+
+  // Iniciar shell interactivo en la terminal (abre la vista terminal).
+  activityTerminal.click();
+  await wait(100);
+  ok(typeof ctx.window.__uriShellData === "function", "el shell interactivo se inicio (__uriShellData definido)");
+
   fire(ctx.elements.checkUpdate);
-  "echo panel-terminal\r".split("").forEach(function (ch) { terminalInput(ch); });
+  if (terminalInput) {
+    "echo panel-terminal\r".split("").forEach(function (ch) { terminalInput(ch); });
+  }
   ctx.elements.chatInput.value = "error de chat";
   fire(ctx.elements.chatSend);
   await wait(80);
@@ -180,7 +193,6 @@ function fire(element) {
   ok(/App start/.test(outputText) && /Editor mode/.test(outputText) && /Extensions loaded/.test(outputText),
     "el output registra inicio, modo del editor y extensiones");
   ok(/Update check result/.test(outputText), "el output registra el resultado de actualizar");
-  ok(/Terminal command completed/.test(outputText), "el output registra la finalizacion de un comando");
   ok(/Chat error/.test(outputText), "el output registra los errores del chat");
   win.UriCodePanels.log("evento de prueba");
   var lastLine = output._children[output._children.length - 1];

@@ -188,6 +188,8 @@ public class MainActivity extends Activity {
 
         /** Procesos LSP vivos, por id de conexion (para sendLsp/stopLsp). */
         private static final Map<String, Process> LSP_PROCS = new HashMap<String, Process>();
+        /** Shells interactivos vivos, por id de sesion. */
+        private static final Map<String, Process> SHELL_PROCS = new HashMap<String, Process>();
         /** Allowlist de language servers que se pueden arrancar. */
         private static final Set<String> LSP_ALLOW = new HashSet<String>(Arrays.asList(
             "pylsp", "pyright-langserver", "typescript-language-server", "clangd",
@@ -462,6 +464,97 @@ public class MainActivity extends Activity {
                     }
                 }
             }).start();
+        }
+
+        /* ================= Shell interactivo (tipo Termux) ================= */
+
+        /**
+         * Arranca un shell interactivo persistente (sh/bash) en el directorio dado.
+         * La salida se envia por window.__uriShellData(id, b64) en chunks crudos.
+         * Al terminar: window.__uriShellClosed(id, code).
+         */
+        @JavascriptInterface
+        public boolean startShell(final String id, final String relCwd) {
+            if (id == null || id.length() == 0) return false;
+            synchronized (SHELL_PROCS) {
+                Process old = SHELL_PROCS.get(id);
+                if (old != null) { try { old.destroyForcibly(); } catch (Exception ignored) {} SHELL_PROCS.remove(id); }
+            }
+            File cwd = resolve(relCwd == null || relCwd.isEmpty() ? "" : relCwd);
+            if (cwd == null || !cwd.isDirectory()) cwd = root();
+            if (cwd == null) return false;
+            // Intentar bash; si no existe, caer a sh.
+            String shell = "/system/bin/bash";
+            if (!new File(shell).exists()) shell = "/system/bin/sh";
+            try {
+                ProcessBuilder pb = new ProcessBuilder(shell);
+                pb.directory(cwd);
+                pb.redirectErrorStream(true);
+                final Process pr = pb.start();
+                synchronized (SHELL_PROCS) { SHELL_PROCS.put(id, pr); }
+                final String fId = id;
+                // stdout+stderr en streaming (chunks crudos de bytes).
+                new Thread(new Runnable() {
+                    public void run() {
+                        try {
+                            java.io.InputStream in = pr.getInputStream();
+                            byte[] buf = new byte[4096];
+                            int n;
+                            while ((n = in.read(buf)) > 0) {
+                                byte[] chunk = java.util.Arrays.copyOf(buf, n);
+                                shellData(fId, android.util.Base64.encodeToString(chunk, android.util.Base64.NO_WRAP));
+                            }
+                        } catch (Exception ignored) {}
+                        int code = -1;
+                        try {
+                            if (pr.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) code = pr.exitValue();
+                            else { try { pr.destroyForcibly(); } catch (Exception ignored) {} }
+                        } catch (Exception e) { code = -1; }
+                        synchronized (SHELL_PROCS) { if (SHELL_PROCS.get(fId) == pr) SHELL_PROCS.remove(fId); }
+                        shellClosed(fId, code);
+                    }
+                }).start();
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /** Escribe bytes (base64) en el stdin del shell. */
+        @JavascriptInterface
+        public boolean sendToShell(final String id, final String base64) {
+            Process p;
+            synchronized (SHELL_PROCS) { p = SHELL_PROCS.get(id); }
+            if (p == null || base64 == null) return false;
+            try {
+                byte[] data = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP);
+                java.io.OutputStream os = p.getOutputStream();
+                os.write(data);
+                os.flush();
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /** Mata el shell interactivo. */
+        @JavascriptInterface
+        public boolean stopShell(final String id) {
+            Process p;
+            synchronized (SHELL_PROCS) { p = SHELL_PROCS.remove(id); }
+            if (p == null) return false;
+            try { p.destroy(); } catch (Exception ignored) {}
+            try { if (p.isAlive()) p.destroyForcibly(); } catch (Exception ignored) {}
+            return true;
+        }
+
+        private void shellData(final String id, final String b64) {
+            final String js = "window.__uriShellData && window.__uriShellData(" + org.json.JSONObject.quote(id) + "," + org.json.JSONObject.quote(b64) + ")";
+            web.post(new Runnable() { public void run() { try { web.evaluateJavascript(js, null); } catch (Exception ignored) {} } });
+        }
+        private void shellClosed(final String id, final int code) {
+            final String js = "window.__uriShellClosed && window.__uriShellClosed(" + org.json.JSONObject.quote(id) + "," + code + ")";
+            web.post(new Runnable() { public void run() { try { web.evaluateJavascript(js, null); } catch (Exception ignored) {} } });
         }
 
         private void termChunk(final String id, final String b64) {

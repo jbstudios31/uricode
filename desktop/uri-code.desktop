@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Uri Code
+Comment=Editor de código estilo VS Code
+Exec=uri-code %F
+Icon=uri-code
+Type=Application
+Categories=Development;IDE;TextEditor;
+MimeType=text/plain;
+StartupNotify=true

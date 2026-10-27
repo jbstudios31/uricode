@@ -51,11 +51,15 @@ UriCode/
 │   ├── vendor/monaco/      # Monaco offline
 │   └── js/ icons.js · api.js · editor.js · nim-chat.js · lsp.js · debug.js · extensions.js · app.js
 ├── tests/                  # smoke.js, runtime.test.js, features.test.js, dom.js, native-mock.js
-├── build.sh                # genera uri-code.apk
+├── build.sh                # genera uri-code.apk (Android)
+├── desktop/                # App de escritorio (Electron) para Linux
+│   ├── main.js, preload.js, fileapi.js, shell.js, lsp.js, http.js
+│   ├── package.json, build.sh
+│   └── dist/               # AppImage, .deb (generados)
 └── README.md
 ```
 
-## Compilar e instalar
+## Compilar e instalar (Android)
 
 Desde Termux:
 
@@ -67,6 +71,25 @@ bash build.sh
 > En `/storage` no se puede ejecutar directamente: usa `bash build.sh`, no `./build.sh`.
 
 Genera `uri-code.apk`; instálalo en tu dispositivo. La primera vez descarga `android.jar` (puedes indicar uno propio con `ANDROID_JAR=/ruta/android.jar`).
+
+## Compilar e instalar (Linux)
+
+Requiere Node.js >= 18:
+
+```bash
+cd desktop
+npm install
+npm run build:linux
+```
+
+Genera `desktop/dist/Uri Code-*.AppImage` y `desktop/dist/uri-code_*.deb`. Instala el .deb con `sudo dpkg -i` o ejecuta el AppImage directamente.
+
+Para desarrollo:
+
+```bash
+cd desktop
+npm start
+```
 
 ## Tests
 

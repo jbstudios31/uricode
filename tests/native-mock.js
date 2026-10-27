@@ -216,6 +216,58 @@ function createFileAPI(opts) {
       delete lspProcs[id];
       try { pr.kill(); } catch (e) {}
       return true;
+    },
+
+    /* Shell interactivo persistente (tipo Termux). */
+    shellProcs: {},
+    startShell: function (id, relCwd) {
+      var ALLOW = true;
+      if (!id) return false;
+      var self = this;
+      // Detener shell previo si existe.
+      if (self.shellProcs[id]) {
+        try { self.shellProcs[id].kill(); } catch (e) {}
+        delete self.shellProcs[id];
+      }
+      try {
+        var pr = cp.spawn('/bin/sh', [], {
+          cwd: relCwd && opts.cwd ? String(relCwd) : undefined
+        });
+        self.shellProcs[id] = pr;
+        pr.stdout.on('data', function (chunk) {
+          if (web && web.__uriShellData) web.__uriShellData(id, Buffer.from(chunk).toString('base64'));
+        });
+        pr.stderr.on('data', function (chunk) {
+          if (web && web.__uriShellData) web.__uriShellData(id, Buffer.from(chunk).toString('base64'));
+        });
+        pr.on('exit', function (code) {
+          delete self.shellProcs[id];
+          if (web && web.__uriShellClosed) web.__uriShellClosed(id, code === null ? -1 : code);
+        });
+        pr.on('error', function () {
+          delete self.shellProcs[id];
+          if (web && web.__uriShellClosed) web.__uriShellClosed(id, -1);
+        });
+        return true;
+      } catch (e) {
+        return false;
+      }
+    },
+    sendToShell: function (id, b64) {
+      var pr = self.shellProcs[id];
+      if (!pr) return false;
+      try {
+        var data = Buffer.from(String(b64), 'base64');
+        pr.stdin.write(data);
+        return true;
+      } catch (e) { return false; }
+    },
+    stopShell: function (id) {
+      var pr = self.shellProcs[id];
+      if (!pr) return false;
+      delete self.shellProcs[id];
+      try { pr.kill(); } catch (e) {}
+      return true;
     }
   };
   return API;
