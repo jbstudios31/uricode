@@ -20,6 +20,15 @@ Editor de codigo para Android con aspecto de VS Code. App Android (WebView + Fil
 - git identity local: jbstudios31 / jbstudios31@users.noreply.github.com.
 - Token Netlify: nfp_zjmiN3iVVVP6GYdLimZjCJmD5UyCfUJT4cbf (para PWA GT3, no para UriCode).
 
+## App de escritorio (Linux)
+- Ubicacion: desktop/
+- Tecnologia: Electron (main.js + preload.js + fileapi.js en Node.js)
+- FileAPI implementado en Node.js (mismo contrato que MainActivity.java)
+- Shell interactivo, LSP, HTTP proxy, todo via child_process
+- Build: `cd desktop && npm install && npm run build:linux` (AppImage + .deb)
+- Desarrollo: `cd desktop && npm start`
+- Tests: `node tests/desktop.test.js` (31 checks)
+
 ## Estructura
 ```
 Uri/

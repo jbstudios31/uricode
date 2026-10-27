@@ -72,7 +72,7 @@ bash build.sh
 
 Genera `uri-code.apk`; instálalo en tu dispositivo. La primera vez descarga `android.jar` (puedes indicar uno propio con `ANDROID_JAR=/ruta/android.jar`).
 
-## Compilar e instalar (Linux)
+## Compilar e instalar (Linux) — Opción A: Electron (requiere npm)
 
 Requiere Node.js >= 18:
 
@@ -90,6 +90,24 @@ Para desarrollo:
 cd desktop
 npm start
 ```
+
+## Ejecutar sin npm (Opción B: servidor Python)
+
+Si no tienes npm instalado, usa el servidor Python integrado (Python 3 estándar en casi cualquier Linux):
+
+```bash
+python3 server.py [carpeta-raiz] [puerto]
+```
+
+Por defecto usa el directorio actual como raíz y el puerto 8765. Abre en el navegador:
+
+```
+http://127.0.0.1:8765
+```
+
+Esto sirve la interfaz de editor-web/ y expone un puente FileAPI por HTTP, por lo que el editor tiene acceso real al sistema de archivos (abrir/guardar archivos, crear carpetas, ejecutar comandos de shell, etc.) sin necesidad de instalar Electron ni npm.
+
+Nota: La terminal interactiva y los servidores LSP no están disponibles en el modo servidor Python (solo en la app Electron). Para esas funciones, usa la versión Electron.
 
 ## Tests
 
